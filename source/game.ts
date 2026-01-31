@@ -1,9 +1,8 @@
 /**
  * Bunny Hop Game
- * 3D platformer with physics
+ * Simple 3D platformer with custom physics
  */
 
-import * as CANNON from "cannon-es";
 import * as THREE from "three";
 
 export interface GameConfig {
@@ -18,26 +17,30 @@ export interface GameConfig {
   };
 }
 
+interface Platform {
+  mesh: THREE.Mesh;
+  box: THREE.Box3;
+}
+
 export class Game {
   // Three.js
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
 
-  // Cannon.js physics
-  private world: CANNON.World;
-  private timeStep = 1 / 60;
+  // Player
+  private player: THREE.Mesh;
+  private playerVelocity = new THREE.Vector3(0, 0, 0);
+  private playerBox = new THREE.Box3();
+  private isGrounded = false;
 
-  // Game objects
-  private player: {
-    mesh: THREE.Mesh;
-    body: CANNON.Body;
-  };
+  // Platforms
+  private platforms: Platform[] = [];
 
-  private platforms: Array<{
-    mesh: THREE.Mesh;
-    body: CANNON.Body;
-  }> = [];
+  // Physics constants
+  private readonly GRAVITY = 30;
+  private readonly MOVE_SPEED = 10;
+  private readonly JUMP_FORCE = 12;
 
   // Controls
   private keys = {
@@ -48,192 +51,148 @@ export class Game {
     jump: false,
   };
 
+  // Game state
   private isPlaying = false;
-  private canJump = false;
+  private clock = new THREE.Clock();
 
-  // Camera settings
-  private cameraDistance = 8;
-  private cameraHeight = 4;
+  // Camera
+  private cameraOffset = new THREE.Vector3(0, 5, 10);
 
   constructor(
-    config: GameConfig,
+    _config: GameConfig,
     private container: HTMLElement
   ) {
-    // Initialize Three.js
+    // Scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb); // Sky blue
+    this.scene.background = new THREE.Color(0x87ceeb);
 
+    // Camera
     this.camera = new THREE.PerspectiveCamera(
-      config.camera.fov,
+      60,
       window.innerWidth / window.innerHeight,
-      config.camera.near,
-      config.camera.far
+      0.1,
+      1000
     );
 
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: config.renderer.antialias,
-      alpha: config.renderer.alpha,
-    });
+    // Renderer
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
 
-    // Initialize Cannon.js physics
-    this.world = new CANNON.World({
-      gravity: new CANNON.Vec3(0, -20, 0), // Earth-like gravity
-    });
-
-    // Create game objects
+    // Create world
     this.player = this.createPlayer();
     this.createPlatforms();
-    this.setupLighting();
+    this.createLights();
     this.setupControls();
 
-    // Handle resize
-    window.addEventListener("resize", () => this.onResize());
+    // Events
+    window.addEventListener("resize", this.onResize);
   }
 
-  private createPlayer(): { mesh: THREE.Mesh; body: CANNON.Body } {
-    // Visual mesh
+  private createPlayer(): THREE.Mesh {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
     const material = new THREE.MeshStandardMaterial({
       color: 0xff6b6b,
-      roughness: 0.7,
-      metalness: 0.3,
+      roughness: 0.5,
     });
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(0, 3, 0);
     mesh.castShadow = true;
-    mesh.receiveShadow = true;
     this.scene.add(mesh);
-
-    // Physics body
-    const shape = new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5));
-    const body = new CANNON.Body({
-      mass: 1,
-      position: new CANNON.Vec3(0, 5, 0),
-      shape: shape,
-      linearDamping: 0.3,
-      angularDamping: 0.9,
-    });
-
-    // Detect when player touches ground
-    body.addEventListener("collide", (e: any) => {
-      const contact = e.contact;
-      if (contact.bi.id === body.id || contact.bj.id === body.id) {
-        this.canJump = true;
-      }
-    });
-
-    this.world.addBody(body);
-
-    return { mesh, body };
+    return mesh;
   }
 
   private createPlatforms(): void {
-    const platforms = [
+    const platformData = [
       // Ground
-      { pos: [0, -0.5, 0], size: [20, 1, 20], color: 0x4a9d4a },
+      { x: 0, y: 0, z: 0, w: 20, h: 1, d: 20, color: 0x4a9d4a },
       // Platforms
-      { pos: [5, 2, 0], size: [3, 0.5, 3], color: 0x6b8e23 },
-      { pos: [-5, 4, 3], size: [3, 0.5, 3], color: 0x6b8e23 },
-      { pos: [0, 6, -5], size: [3, 0.5, 3], color: 0x6b8e23 },
-      { pos: [8, 8, 5], size: [3, 0.5, 3], color: 0x6b8e23 },
+      { x: 5, y: 2, z: 0, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
+      { x: -5, y: 4, z: 3, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
+      { x: 0, y: 6, z: -5, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
+      { x: 7, y: 8, z: -3, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
     ];
 
-    for (const platform of platforms) {
-      const [x, y, z] = platform.pos;
-      const [w, h, d] = platform.size;
-
-      // Visual mesh
-      const geometry = new THREE.BoxGeometry(w, h, d);
+    for (const p of platformData) {
+      const geometry = new THREE.BoxGeometry(p.w, p.h, p.d);
       const material = new THREE.MeshStandardMaterial({
-        color: platform.color,
+        color: p.color,
         roughness: 0.8,
       });
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(x, y, z);
-      mesh.castShadow = true;
+      mesh.position.set(p.x, p.y, p.z);
       mesh.receiveShadow = true;
+      mesh.castShadow = true;
       this.scene.add(mesh);
 
-      // Physics body
-      const shape = new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2));
-      const body = new CANNON.Body({
-        mass: 0, // Static
-        position: new CANNON.Vec3(x, y, z),
-        shape: shape,
-      });
-      this.world.addBody(body);
-
-      this.platforms.push({ mesh, body });
+      // Create bounding box
+      const box = new THREE.Box3().setFromObject(mesh);
+      this.platforms.push({ mesh, box });
     }
   }
 
-  private setupLighting(): void {
-    // Ambient light
-    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  private createLights(): void {
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambient);
 
-    // Directional light (sun)
     const sun = new THREE.DirectionalLight(0xffffff, 0.8);
     sun.position.set(10, 20, 10);
     sun.castShadow = true;
+    sun.shadow.mapSize.width = 2048;
+    sun.shadow.mapSize.height = 2048;
     sun.shadow.camera.left = -20;
     sun.shadow.camera.right = 20;
     sun.shadow.camera.top = 20;
     sun.shadow.camera.bottom = -20;
-    sun.shadow.mapSize.width = 2048;
-    sun.shadow.mapSize.height = 2048;
     this.scene.add(sun);
   }
 
   private setupControls(): void {
-    // Keyboard controls
     window.addEventListener("keydown", (e) => {
-      switch (e.key.toLowerCase()) {
-        case "w":
-        case "arrowup":
+      switch (e.code) {
+        case "KeyW":
+        case "ArrowUp":
           this.keys.forward = true;
           break;
-        case "s":
-        case "arrowdown":
+        case "KeyS":
+        case "ArrowDown":
           this.keys.backward = true;
           break;
-        case "a":
-        case "arrowleft":
+        case "KeyA":
+        case "ArrowLeft":
           this.keys.left = true;
           break;
-        case "d":
-        case "arrowright":
+        case "KeyD":
+        case "ArrowRight":
           this.keys.right = true;
           break;
-        case " ":
+        case "Space":
           this.keys.jump = true;
           break;
       }
     });
 
     window.addEventListener("keyup", (e) => {
-      switch (e.key.toLowerCase()) {
-        case "w":
-        case "arrowup":
+      switch (e.code) {
+        case "KeyW":
+        case "ArrowUp":
           this.keys.forward = false;
           break;
-        case "s":
-        case "arrowdown":
+        case "KeyS":
+        case "ArrowDown":
           this.keys.backward = false;
           break;
-        case "a":
-        case "arrowleft":
+        case "KeyA":
+        case "ArrowLeft":
           this.keys.left = false;
           break;
-        case "d":
-        case "arrowright":
+        case "KeyD":
+        case "ArrowRight":
           this.keys.right = false;
           break;
-        case " ":
+        case "Space":
           this.keys.jump = false;
           break;
       }
@@ -248,97 +207,141 @@ export class Game {
     this.keys.jump = jump;
   }
 
-  private updatePlayer(): void {
-    const speed = 5;
-    const jumpForce = 10;
+  private update(delta: number): void {
+    // --- Input ---
+    const moveDir = new THREE.Vector3();
 
-    // Get camera direction
-    const cameraDirection = new THREE.Vector3();
-    this.camera.getWorldDirection(cameraDirection);
-    cameraDirection.y = 0;
-    cameraDirection.normalize();
+    if (this.keys.forward) moveDir.z -= 1;
+    if (this.keys.backward) moveDir.z += 1;
+    if (this.keys.left) moveDir.x -= 1;
+    if (this.keys.right) moveDir.x += 1;
 
-    // Calculate right vector
-    const right = new THREE.Vector3();
-    right.crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0));
-
-    // Apply movement
-    const velocity = new CANNON.Vec3();
-
-    if (this.keys.forward) {
-      velocity.x += cameraDirection.x * speed;
-      velocity.z += cameraDirection.z * speed;
-    }
-    if (this.keys.backward) {
-      velocity.x -= cameraDirection.x * speed;
-      velocity.z -= cameraDirection.z * speed;
-    }
-    if (this.keys.left) {
-      velocity.x -= right.x * speed;
-      velocity.z -= right.z * speed;
-    }
-    if (this.keys.right) {
-      velocity.x += right.x * speed;
-      velocity.z += right.z * speed;
+    if (moveDir.length() > 0) {
+      moveDir.normalize();
     }
 
-    // Apply velocity to player body
-    this.player.body.velocity.x = velocity.x;
-    this.player.body.velocity.z = velocity.z;
+    // --- Horizontal movement ---
+    this.playerVelocity.x = moveDir.x * this.MOVE_SPEED;
+    this.playerVelocity.z = moveDir.z * this.MOVE_SPEED;
 
-    // Jump
-    if (this.keys.jump && this.canJump) {
-      this.player.body.velocity.y = jumpForce;
-      this.canJump = false;
+    // --- Gravity ---
+    if (!this.isGrounded) {
+      this.playerVelocity.y -= this.GRAVITY * delta;
     }
 
-    // Keep rotation upright
-    this.player.body.quaternion.setFromEuler(0, 0, 0);
-  }
+    // --- Jump ---
+    if (this.keys.jump && this.isGrounded) {
+      this.playerVelocity.y = this.JUMP_FORCE;
+      this.isGrounded = false;
+    }
 
-  private updateCamera(): void {
-    // Third-person camera
-    const playerPos = this.player.body.position;
+    // --- Apply velocity ---
+    const displacement = this.playerVelocity.clone().multiplyScalar(delta);
+    this.player.position.add(displacement);
 
-    // Camera position behind and above player
-    const cameraPos = new THREE.Vector3(
-      playerPos.x,
-      playerPos.y + this.cameraHeight,
-      playerPos.z + this.cameraDistance
-    );
+    // --- Collision detection ---
+    this.updatePlayerBox();
+    this.isGrounded = false;
 
-    this.camera.position.lerp(cameraPos, 0.1);
-    this.camera.lookAt(playerPos.x, playerPos.y, playerPos.z);
-  }
+    for (const platform of this.platforms) {
+      if (this.playerBox.intersectsBox(platform.box)) {
+        this.resolveCollision(platform.box);
+      }
+    }
 
-  private update(): void {
-    if (!this.isPlaying) return;
+    // --- Fall reset ---
+    if (this.player.position.y < -10) {
+      this.player.position.set(0, 5, 0);
+      this.playerVelocity.set(0, 0, 0);
+    }
 
-    // Update physics
-    this.world.step(this.timeStep);
+    // --- Camera ---
+    const targetCamPos = this.player.position.clone().add(this.cameraOffset);
+    this.camera.position.lerp(targetCamPos, 0.1);
+    this.camera.lookAt(this.player.position);
 
-    // Update player
-    this.updatePlayer();
-
-    // Sync visual meshes with physics bodies
-    this.player.mesh.position.copy(this.player.body.position as any);
-    this.player.mesh.quaternion.copy(this.player.body.quaternion as any);
-
-    // Update camera
-    this.updateCamera();
-
-    // Render
+    // --- Render ---
     this.renderer.render(this.scene, this.camera);
   }
 
-  private onResize(): void {
+  private updatePlayerBox(): void {
+    const halfSize = 0.5;
+    this.playerBox.min.set(
+      this.player.position.x - halfSize,
+      this.player.position.y - halfSize,
+      this.player.position.z - halfSize
+    );
+    this.playerBox.max.set(
+      this.player.position.x + halfSize,
+      this.player.position.y + halfSize,
+      this.player.position.z + halfSize
+    );
+  }
+
+  private resolveCollision(platformBox: THREE.Box3): void {
+    // Calculate overlap on each axis
+    const overlapX = Math.min(
+      this.playerBox.max.x - platformBox.min.x,
+      platformBox.max.x - this.playerBox.min.x
+    );
+    const overlapY = Math.min(
+      this.playerBox.max.y - platformBox.min.y,
+      platformBox.max.y - this.playerBox.min.y
+    );
+    const overlapZ = Math.min(
+      this.playerBox.max.z - platformBox.min.z,
+      platformBox.max.z - this.playerBox.min.z
+    );
+
+    // Find smallest overlap axis
+    if (overlapY <= overlapX && overlapY <= overlapZ) {
+      // Vertical collision
+      if (this.playerVelocity.y < 0) {
+        // Landing on top
+        this.player.position.y = platformBox.max.y + 0.5;
+        this.playerVelocity.y = 0;
+        this.isGrounded = true;
+      } else if (this.playerVelocity.y > 0) {
+        // Hitting bottom
+        this.player.position.y = platformBox.min.y - 0.5;
+        this.playerVelocity.y = 0;
+      }
+    } else if (overlapX <= overlapZ) {
+      // X axis collision
+      if (
+        this.player.position.x >
+        platformBox.min.x + (platformBox.max.x - platformBox.min.x) / 2
+      ) {
+        this.player.position.x = platformBox.max.x + 0.5;
+      } else {
+        this.player.position.x = platformBox.min.x - 0.5;
+      }
+      this.playerVelocity.x = 0;
+    } else {
+      // Z axis collision
+      if (
+        this.player.position.z >
+        platformBox.min.z + (platformBox.max.z - platformBox.min.z) / 2
+      ) {
+        this.player.position.z = platformBox.max.z + 0.5;
+      } else {
+        this.player.position.z = platformBox.min.z - 0.5;
+      }
+      this.playerVelocity.z = 0;
+    }
+
+    this.updatePlayerBox();
+  }
+
+  private onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-  }
+  };
 
   public start(): void {
     this.isPlaying = true;
+    this.clock.start();
     this.animate();
   }
 
@@ -349,6 +352,8 @@ export class Game {
   private animate = (): void => {
     if (!this.isPlaying) return;
     requestAnimationFrame(this.animate);
-    this.update();
+
+    const delta = Math.min(this.clock.getDelta(), 0.1);
+    this.update(delta);
   };
 }
