@@ -40,11 +40,12 @@ export class VirtualJoystick {
       left: max(5vmin, 20px);
       width: max(20vmin, 100px);
       height: max(20vmin, 100px);
-      background: rgba(255, 255, 255, 0.3);
-      border: max(0.5vmin, 2px) solid rgba(255, 255, 255, 0.5);
-      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      border: none;
+      border-radius: 0;
       z-index: 1000;
       touch-action: none;
+      box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
     `;
 
     this.joystickStick = document.createElement("div");
@@ -55,7 +56,7 @@ export class VirtualJoystick {
       width: max(8vmin, 40px);
       height: max(8vmin, 40px);
       background: rgba(255, 255, 255, 0.8);
-      border-radius: 50%;
+      border-radius: 0;
       transform: translate(-50%, -50%);
       transition: all 0.1s;
     `;
@@ -74,13 +75,14 @@ export class VirtualJoystick {
       position: fixed;
       bottom: max(6vmin, 25px);
       right: max(5vmin, 20px);
-      width: max(18vmin, 90px);
-      height: max(18vmin, 90px);
-      background: rgba(255, 107, 107, 0.8);
-      border: max(0.5vmin, 2px) solid rgba(255, 255, 255, 0.5);
-      border-radius: 50%;
+      width: max(20vmin, 90px);
+      height: max(20vmin, 90px);
+      background: #2196F3;
+      border: none;
+      border-radius: 0;
       color: white;
-      font-size: max(3vmin, 14px);
+      font-family: 'Jersey 10', Arial, sans-serif;
+      font-size: max(6vmin, 24px);
       font-weight: bold;
       display: flex;
       align-items: center;
@@ -89,6 +91,7 @@ export class VirtualJoystick {
       touch-action: none;
       user-select: none;
       cursor: pointer;
+      box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
     `;
 
     document.body.appendChild(button);
@@ -172,14 +175,14 @@ export class VirtualJoystick {
   private onJumpStart = (e: TouchEvent): void => {
     e.preventDefault();
     this.isJumping = true;
-    this.jumpButton.style.background = "rgba(255, 107, 107, 1)";
+    this.jumpButton.style.background = "#1976D2";
     this.notifyUpdate();
   };
 
   private onJumpEnd = (e: TouchEvent): void => {
     e.preventDefault();
     this.isJumping = false;
-    this.jumpButton.style.background = "rgba(255, 107, 107, 0.8)";
+    this.jumpButton.style.background = "#2196F3";
     this.notifyUpdate();
   };
 

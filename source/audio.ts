@@ -72,6 +72,71 @@ class AudioManager {
     }
   }
 
+  public playGameOver(): void {
+    try {
+      const ctx = this.getContext();
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+
+      // Sad descending notes
+      const notes = [392, 330, 262, 196]; // G4, E4, C4, G3
+      const noteLength = 0.2;
+
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "square";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + i * noteLength);
+
+        gain.gain.setValueAtTime(0.3, ctx.currentTime + i * noteLength);
+        gain.gain.exponentialRampToValueAtTime(
+          0.01,
+          ctx.currentTime + i * noteLength + noteLength * 0.9
+        );
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(ctx.currentTime + i * noteLength);
+        osc.stop(ctx.currentTime + i * noteLength + noteLength);
+      });
+    } catch (e) {
+      console.warn("Game over sound error:", e);
+    }
+  }
+
+  public playCollect(): void {
+    try {
+      const ctx = this.getContext();
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+
+      // Two quick high notes
+      const notes = [880, 1100]; // A5, C#6
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "square";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.06);
+
+        gain.gain.setValueAtTime(0.25, ctx.currentTime + i * 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.06 + 0.1);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(ctx.currentTime + i * 0.06);
+        osc.stop(ctx.currentTime + i * 0.06 + 0.1);
+      });
+    } catch (e) {
+      console.warn("Collect sound error:", e);
+    }
+  }
+
   public playDeath(): void {
     try {
       const ctx = this.getContext();

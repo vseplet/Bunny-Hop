@@ -123,6 +123,11 @@ export class Game {
   private introMode = true;
   private introAngle = 0;
 
+  // Collectibles
+  private gems: THREE.Mesh[] = [];
+  private gemsCollected = 0;
+  private gemsUI!: HTMLElement;
+
   // Camera settings (updated based on orientation)
   private camDistance = 8;
   private camHeight = 5;
@@ -190,6 +195,7 @@ export class Game {
     // Create world
     this.player = this.createPlayer();
     this.createPlatforms();
+    this.createGems();
     this.createLights();
     this.setupControls();
     this.createUI();
@@ -340,6 +346,43 @@ export class Game {
     this.addPlatform(currentX, currentY, currentZ - 8, 8, 1, 8, 0xffd700);
   }
 
+  private createGems(): void {
+    // Skip first platform (start) and place gems on every 5th platform
+    for (let i = 5; i < this.platforms.length; i += 5) {
+      const platform = this.platforms[i];
+      const pos = platform.mesh.position;
+
+      // Create pyramid (tetrahedron)
+      const geometry = new THREE.ConeGeometry(0.4, 0.8, 4);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x00bfff,
+        emissive: 0x00bfff,
+        emissiveIntensity: 0.5,
+        metalness: 0.8,
+        roughness: 0.2,
+      });
+
+      const gem = new THREE.Mesh(geometry, material);
+      gem.position.set(pos.x, pos.y + 2, pos.z);
+      gem.castShadow = true;
+      this.scene.add(gem);
+      this.gems.push(gem);
+
+      // Add floating animation
+      const startY = gem.position.y;
+      new Tween({ y: startY, rot: 0 }, this.tweenGroup)
+        .to({ y: startY + 0.5, rot: Math.PI * 2 }, 2000)
+        .easing(Easing.Sinusoidal.InOut)
+        .repeat(Infinity)
+        .yoyo(true)
+        .onUpdate((obj) => {
+          gem.position.y = obj.y;
+          gem.rotation.y = obj.rot;
+        })
+        .start();
+    }
+  }
+
   private addPlatform(
     x: number,
     y: number,
@@ -441,6 +484,21 @@ export class Game {
     `;
     this.progressUI.textContent = "Platforms: 0";
     document.body.appendChild(this.progressUI);
+
+    this.gemsUI = document.createElement("div");
+    this.gemsUI.style.cssText = `
+      position: fixed;
+      top: 3vmin;
+      right: 3vmin;
+      font-family: 'Jersey 10', Arial, sans-serif;
+      font-size: 7vmin;
+      font-weight: bold;
+      color: #00bfff;
+      text-shadow: 0.3vmin 0.3vmin 0.6vmin rgba(0, 0, 0, 0.5);
+      z-index: 100;
+    `;
+    this.gemsUI.textContent = "Gems: 0";
+    document.body.appendChild(this.gemsUI);
   }
 
   private setupControls(): void {
@@ -495,8 +553,8 @@ export class Game {
 
   public setMobileControls(dx: number, _dy: number, jump: boolean): void {
     // Only use horizontal axis for turning
-    this.keys.left = dx < -0.2;
-    this.keys.right = dx > 0.2;
+    this.keys.left = dx < -0.35;
+    this.keys.right = dx > 0.35;
     this.keys.jump = jump;
   }
 
@@ -589,6 +647,19 @@ export class Game {
           this.platformsReached = this.touchedPlatforms.size;
           this.progressUI.textContent = `Platforms: ${this.platformsReached}`;
         }
+      }
+    }
+
+    // --- Gem collection ---
+    for (let i = this.gems.length - 1; i >= 0; i--) {
+      const gem = this.gems[i];
+      const dist = this.player.position.distanceTo(gem.position);
+      if (dist < 1.5) {
+        this.scene.remove(gem);
+        this.gems.splice(i, 1);
+        this.gemsCollected++;
+        this.gemsUI.textContent = `Gems: ${this.gemsCollected}`;
+        audio.playCollect();
       }
     }
 
@@ -775,17 +846,53 @@ export class Game {
       }
     }
 
-    // Respawn at start
+    // Full restart - recreate world
+    this.resetWorld();
     this.resetPlayer(new THREE.Vector3(0, 3, -2));
-    this.platformsReached = 0;
-    this.touchedPlatforms.clear();
-    this.progressUI.textContent = "Platforms: 0";
     this.isFalling = false;
     this.start();
     poki.gameplayStart();
   }
 
+  private resetWorld(): void {
+    // Remove old platforms
+    for (const platform of this.platforms) {
+      this.scene.remove(platform.mesh);
+      platform.mesh.geometry.dispose();
+      if (Array.isArray(platform.mesh.material)) {
+        for (const m of platform.mesh.material) {
+          m.dispose();
+        }
+      } else {
+        platform.mesh.material.dispose();
+      }
+    }
+    this.platforms = [];
+
+    // Remove old gems
+    for (const gem of this.gems) {
+      this.scene.remove(gem);
+      gem.geometry.dispose();
+      (gem.material as THREE.Material).dispose();
+    }
+    this.gems = [];
+
+    // Reset counters
+    this.platformsReached = 0;
+    this.touchedPlatforms.clear();
+    this.progressUI.textContent = "Platforms: 0";
+    this.gemsCollected = 0;
+    this.gemsUI.textContent = "Gems: 0";
+
+    // Recreate world
+    this.createPlatforms();
+    this.createGems();
+    this.updateRecordLight();
+  }
+
   private showFallPrompt(platforms: number): Promise<boolean> {
+    audio.playGameOver();
+
     return new Promise((resolve) => {
       const overlay = document.createElement("div");
       overlay.style.cssText = `
