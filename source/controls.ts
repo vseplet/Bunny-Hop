@@ -36,12 +36,12 @@ export class VirtualJoystick {
     container.id = "joystick-container";
     container.style.cssText = `
       position: fixed;
-      bottom: 60px;
-      left: 60px;
-      width: 120px;
-      height: 120px;
+      bottom: max(5vmin, 20px);
+      left: max(5vmin, 20px);
+      width: max(20vmin, 100px);
+      height: max(20vmin, 100px);
       background: rgba(255, 255, 255, 0.3);
-      border: 3px solid rgba(255, 255, 255, 0.5);
+      border: max(0.5vmin, 2px) solid rgba(255, 255, 255, 0.5);
       border-radius: 50%;
       z-index: 1000;
       touch-action: none;
@@ -52,8 +52,8 @@ export class VirtualJoystick {
       position: absolute;
       top: 50%;
       left: 50%;
-      width: 50px;
-      height: 50px;
+      width: max(8vmin, 40px);
+      height: max(8vmin, 40px);
       background: rgba(255, 255, 255, 0.8);
       border-radius: 50%;
       transform: translate(-50%, -50%);
@@ -72,15 +72,15 @@ export class VirtualJoystick {
     button.textContent = "JUMP";
     button.style.cssText = `
       position: fixed;
-      bottom: 80px;
-      right: 60px;
-      width: 100px;
-      height: 100px;
+      bottom: max(6vmin, 25px);
+      right: max(5vmin, 20px);
+      width: max(18vmin, 90px);
+      height: max(18vmin, 90px);
       background: rgba(255, 107, 107, 0.8);
-      border: 3px solid rgba(255, 255, 255, 0.5);
+      border: max(0.5vmin, 2px) solid rgba(255, 255, 255, 0.5);
       border-radius: 50%;
       color: white;
-      font-size: 16px;
+      font-size: max(3vmin, 14px);
       font-weight: bold;
       display: flex;
       align-items: center;
@@ -145,7 +145,9 @@ export class VirtualJoystick {
     const deltaX = x - this.startX;
     const deltaY = y - this.startY;
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    const maxDistance = 35; // Max stick travel distance
+    // Max distance is ~30% of container (which is 20vmin)
+    const containerSize = this.joystickContainer.getBoundingClientRect().width;
+    const maxDistance = containerSize * 0.3;
 
     // Clamp to max distance
     let clampedX = deltaX;

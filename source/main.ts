@@ -106,18 +106,18 @@ function showStartScreen(): void {
   const title = document.createElement("h1");
   title.textContent = "🐰 Bunny Hop";
   title.style.cssText = `
-    font-size: 64px;
-    margin-bottom: 20px;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    font-size: 10vmin;
+    margin-bottom: 3vmin;
+    text-shadow: 0.3vmin 0.3vmin 0.6vmin rgba(0, 0, 0, 0.5);
     text-align: center;
     width: 100%;
   `;
 
   const instructions = document.createElement("div");
   instructions.style.cssText = `
-    font-size: 20px;
+    font-size: 3.5vmin;
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 6vmin;
     line-height: 1.6;
   `;
 
@@ -138,16 +138,16 @@ function showStartScreen(): void {
   const startButton = document.createElement("button");
   startButton.textContent = "START GAME";
   startButton.style.cssText = `
-    padding: 20px 60px;
-    font-size: 24px;
+    padding: 3vmin 8vmin;
+    font-size: 4vmin;
     font-weight: bold;
     background: #ff6b6b;
     color: white;
     border: none;
-    border-radius: 50px;
+    border-radius: 8vmin;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
   `;
 
   startButton.onmouseover = () => {

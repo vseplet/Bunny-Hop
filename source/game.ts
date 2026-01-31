@@ -86,6 +86,10 @@ export class Game {
   // Checkpoint for rewarded ads
   private isFalling = false;
 
+  // High score
+  private readonly STORAGE_KEY = "bunny-hop-highscore";
+  private highScore = 0;
+
   // Lights
   private sun!: THREE.DirectionalLight;
 
@@ -157,6 +161,7 @@ export class Game {
     this.createLights();
     this.setupControls();
     this.createUI();
+    this.loadHighScore();
   }
 
   private createPlayer(): THREE.Mesh {
@@ -166,22 +171,32 @@ export class Game {
       roughness: 0.5,
     });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(0, 3, 0);
+    mesh.position.set(0, 3, -2);
     mesh.castShadow = true;
     this.scene.add(mesh);
     return mesh;
   }
 
   private createPlatforms(): void {
-    // Starting platform (larger)
-    this.addPlatform(0, 0, 0, 12, 1, 12, 0x4a9d4a);
+    // Starting platform - elongated for player to get used to controls
+    // Positioned so back edge is at Z=0, extends to Z=-20
+    this.addStartPlatform(0, 0, -10, 6, 1, 20);
 
-    // Generate 100 platforms going forward (-Z direction)
-    let currentZ = 0;
+    // Tutorial section: first 5 platforms at same height and distance
+    const tutorialGap = 5;
+    const tutorialPlatformSize = 3;
+    let currentZ = -20; // End of start platform
+
+    for (let i = 0; i < 5; i++) {
+      currentZ -= tutorialGap;
+      this.addPlatform(0, 0, currentZ, tutorialPlatformSize, 0.5, tutorialPlatformSize, 0x4a9d4a);
+    }
+
+    // Main game section: random platforms
     let currentY = 0;
     let currentX = 0;
 
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 95; i++) {
       // Random gap between platforms (4-7 units - within jump range)
       const gap = 4 + Math.random() * 3;
       currentZ -= gap;
@@ -198,7 +213,7 @@ export class Game {
       const size = 2 + Math.random() * 1.5;
 
       // Color gradient from green to blue as you progress
-      const progress = i / 100;
+      const progress = i / 95;
       const color = new THREE.Color().setHSL(0.3 - progress * 0.2, 0.6, 0.4);
 
       this.addPlatform(currentX, currentY, currentZ, size, 0.5, size, color.getHex());
@@ -232,6 +247,49 @@ export class Game {
     this.platforms.push({ mesh, box });
   }
 
+  private addStartPlatform(x: number, y: number, z: number, w: number, h: number, d: number): void {
+    // Create checkered texture
+    const canvas = document.createElement("canvas");
+    const size = 256;
+    const squares = 8;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+
+    const squareSize = size / squares;
+    for (let i = 0; i < squares; i++) {
+      for (let j = 0; j < squares; j++) {
+        ctx.fillStyle = (i + j) % 2 === 0 ? "#ffffff" : "#222222";
+        ctx.fillRect(i * squareSize, j * squareSize, squareSize, squareSize);
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    // Scale texture to keep squares square (1 repeat per 6 units)
+    texture.repeat.set(w / 6, d / 6);
+
+    const geometry = new THREE.BoxGeometry(w, h, d);
+    const materials = [
+      new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 }), // right
+      new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 }), // left
+      new THREE.MeshStandardMaterial({ map: texture, roughness: 0.5 }), // top (checkered)
+      new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 }), // bottom
+      new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 }), // front
+      new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8 }), // back
+    ];
+
+    const mesh = new THREE.Mesh(geometry, materials);
+    mesh.position.set(x, y, z);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    this.scene.add(mesh);
+
+    const box = new THREE.Box3().setFromObject(mesh);
+    this.platforms.push({ mesh, box });
+  }
+
   private createLights(): void {
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambient);
@@ -255,13 +313,13 @@ export class Game {
     this.progressUI = document.createElement("div");
     this.progressUI.style.cssText = `
       position: fixed;
-      top: 20px;
-      left: 20px;
+      top: 3vmin;
+      left: 3vmin;
       font-family: 'Arial', sans-serif;
-      font-size: 24px;
+      font-size: 4vmin;
       font-weight: bold;
       color: white;
-      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      text-shadow: 0.3vmin 0.3vmin 0.6vmin rgba(0, 0, 0, 0.5);
       z-index: 100;
     `;
     this.progressUI.textContent = "Platforms: 0";
@@ -551,7 +609,7 @@ export class Game {
     }
 
     // Respawn at start
-    this.player.position.set(0, 3, 0);
+    this.player.position.set(0, 3, -2);
     this.playerVelocity.set(0, 0, 0);
     this.playerAngle = 0;
     this.player.rotation.y = 0;
@@ -583,37 +641,45 @@ export class Game {
         font-family: Arial, sans-serif;
       `;
 
+      // Save high score
+      this.saveHighScore(platforms);
+      const isNewRecord = platforms >= this.highScore && platforms > 0;
+
       const title = document.createElement("h2");
-      title.textContent = "You fell!";
-      title.style.cssText = "font-size: 48px; margin-bottom: 10px;";
+      title.textContent = isNewRecord ? "🎉 New Record!" : "You fell!";
+      title.style.cssText = "font-size: 8vmin; margin-bottom: 2vmin;";
 
       const progressText = document.createElement("p");
-      progressText.textContent = `Platforms reached: ${platforms}`;
-      progressText.style.cssText = "font-size: 24px; margin-bottom: 30px; color: #aaa;";
+      progressText.textContent = `Platforms: ${platforms}`;
+      progressText.style.cssText = "font-size: 4vmin; margin-bottom: 1vmin; color: #aaa;";
+
+      const highScoreText = document.createElement("p");
+      highScoreText.textContent = `Best: ${this.highScore}`;
+      highScoreText.style.cssText = "font-size: 3.5vmin; margin-bottom: 5vmin; color: #ffd700;";
 
       const watchBtn = document.createElement("button");
       watchBtn.textContent = "📺 Watch Ad to Continue";
       watchBtn.style.cssText = `
-        padding: 20px 40px;
-        font-size: 20px;
+        padding: 3vmin 6vmin;
+        font-size: 3.5vmin;
         font-weight: bold;
         background: #4CAF50;
         color: white;
         border: none;
-        border-radius: 10px;
+        border-radius: 2vmin;
         cursor: pointer;
-        margin-bottom: 15px;
+        margin-bottom: 2vmin;
       `;
 
       const skipBtn = document.createElement("button");
       skipBtn.textContent = "Restart from Beginning";
       skipBtn.style.cssText = `
-        padding: 15px 30px;
-        font-size: 16px;
+        padding: 2vmin 4vmin;
+        font-size: 3vmin;
         background: transparent;
         color: #888;
-        border: 2px solid #888;
-        border-radius: 10px;
+        border: 0.3vmin solid #888;
+        border-radius: 2vmin;
         cursor: pointer;
       `;
 
@@ -629,6 +695,7 @@ export class Game {
 
       overlay.appendChild(title);
       overlay.appendChild(progressText);
+      overlay.appendChild(highScoreText);
       overlay.appendChild(watchBtn);
       overlay.appendChild(skipBtn);
       document.body.appendChild(overlay);
@@ -650,6 +717,26 @@ export class Game {
     const settings = isPortrait ? this.cameraConfig.portrait : this.cameraConfig.landscape;
     this.camDistance = settings.distance;
     this.camHeight = settings.height;
+  }
+
+  private loadHighScore(): void {
+    try {
+      const saved = localStorage.getItem(this.STORAGE_KEY);
+      this.highScore = saved ? Number.parseInt(saved, 10) : 0;
+    } catch {
+      this.highScore = 0;
+    }
+  }
+
+  private saveHighScore(score: number): void {
+    if (score > this.highScore) {
+      this.highScore = score;
+      try {
+        localStorage.setItem(this.STORAGE_KEY, score.toString());
+      } catch {
+        // localStorage not available
+      }
+    }
   }
 
   public stop(): void {
