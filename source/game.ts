@@ -115,6 +115,9 @@ export class Game {
   // Animation
   private tweenGroup = new Group();
 
+  // Death effect
+  private debris: { mesh: THREE.Mesh; velocity: THREE.Vector3 }[] = [];
+
   // Camera settings (updated based on orientation)
   private camDistance = 8;
   private camHeight = 5;
@@ -132,7 +135,7 @@ export class Game {
     // Scene
     this.scene = new THREE.Scene();
     this.scene.background = this.createSpaceSkybox();
-    this.scene.fog = new THREE.Fog(0x0a0a20, 30, 80);
+    this.scene.fog = new THREE.Fog(0x010102, 15, 45);
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
@@ -207,9 +210,9 @@ export class Game {
         size / 2,
         size * 0.7
       );
-      gradient.addColorStop(0, "#1a1a3a");
-      gradient.addColorStop(0.5, "#0d0d1a");
-      gradient.addColorStop(1, "#050510");
+      gradient.addColorStop(0, "#0a0a18");
+      gradient.addColorStop(0.5, "#050508");
+      gradient.addColorStop(1, "#010102");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, size, size);
 
@@ -226,8 +229,8 @@ export class Game {
           100 + Math.random() * 100
         );
         const hue = Math.random() * 60 + 220; // Blue to purple
-        nebulaGradient.addColorStop(0, `hsla(${hue}, 70%, 30%, 0.1)`);
-        nebulaGradient.addColorStop(0.5, `hsla(${hue}, 60%, 20%, 0.05)`);
+        nebulaGradient.addColorStop(0, `hsla(${hue}, 50%, 15%, 0.08)`);
+        nebulaGradient.addColorStop(0.5, `hsla(${hue}, 40%, 10%, 0.04)`);
         nebulaGradient.addColorStop(1, "transparent");
         ctx.fillStyle = nebulaGradient;
         ctx.fillRect(0, 0, size, size);
@@ -270,10 +273,18 @@ export class Game {
     const material = new THREE.MeshStandardMaterial({
       color: 0xff6b6b,
       roughness: 0.5,
+      emissive: 0xff0000,
+      emissiveIntensity: 0.3,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(0, 3, -2);
     mesh.castShadow = true;
+
+    // Add red point light to player
+    const playerLight = new THREE.PointLight(0xff0000, 10, 15);
+    playerLight.castShadow = false;
+    mesh.add(playerLight);
+
     this.scene.add(mesh);
     return mesh;
   }
@@ -601,6 +612,14 @@ export class Game {
       }
     }
 
+    // --- Update debris ---
+    for (const d of this.debris) {
+      d.velocity.y -= this.config.physics.gravity * delta;
+      d.mesh.position.add(d.velocity.clone().multiplyScalar(delta));
+      d.mesh.rotation.x += delta * 5;
+      d.mesh.rotation.z += delta * 3;
+    }
+
     // --- Update tweens ---
     this.tweenGroup.update();
 
@@ -706,8 +725,14 @@ export class Game {
   }
 
   private async handleFall(): Promise<void> {
+    // Explode player at current position
+    this.explodePlayer();
+
     this.stop();
     poki.gameplayStop();
+
+    // Wait for explosion to play out
+    await new Promise((r) => setTimeout(r, 1200));
 
     const nearestPlatform = this.findNearestPlatform();
 
@@ -719,11 +744,7 @@ export class Game {
         const watched = await poki.rewardedBreak();
         if (watched) {
           // Respawn at nearest platform
-          this.player.position.copy(nearestPlatform);
-          this.playerVelocity.set(0, 0, 0);
-          this.playerAngle = 0;
-          this.player.rotation.y = 0;
-          this.hasStartedMoving = false;
+          this.resetPlayer(nearestPlatform);
           this.isFalling = false;
           this.start();
           poki.gameplayStart();
@@ -733,11 +754,7 @@ export class Game {
     }
 
     // Respawn at start
-    this.player.position.set(0, 3, -2);
-    this.playerVelocity.set(0, 0, 0);
-    this.playerAngle = 0;
-    this.player.rotation.y = 0;
-    this.hasStartedMoving = false;
+    this.resetPlayer(new THREE.Vector3(0, 3, -2));
     this.platformsReached = 0;
     this.touchedPlatforms.clear();
     this.progressUI.textContent = "Platforms: 0";
@@ -854,6 +871,87 @@ export class Game {
         this.player.rotation[axis] = 0;
       })
       .start();
+  }
+
+  private explodePlayer(): void {
+    const pos = this.player.position.clone();
+    const debrisCount = 20;
+    const cubeSize = 0.2;
+
+    // Hide player
+    this.player.visible = false;
+
+    // Create debris cubes
+    for (let i = 0; i < debrisCount; i++) {
+      const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xff6b6b,
+        emissive: 0xff0000,
+        emissiveIntensity: 0.5,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+
+      // Random offset from center
+      mesh.position.set(
+        pos.x + (Math.random() - 0.5) * 0.5,
+        pos.y + (Math.random() - 0.5) * 0.5,
+        pos.z + (Math.random() - 0.5) * 0.5
+      );
+
+      // Random velocity outward
+      const velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * 15,
+        Math.random() * 10 + 5,
+        (Math.random() - 0.5) * 15
+      );
+
+      mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      this.scene.add(mesh);
+      this.debris.push({ mesh, velocity });
+    }
+
+    // Animate debris independently of game loop
+    const gravity = this.config.physics.gravity;
+    let lastTime = performance.now();
+
+    const animateDebris = () => {
+      if (this.debris.length === 0) return;
+
+      const now = performance.now();
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+
+      for (const d of this.debris) {
+        d.velocity.y -= gravity * delta;
+        d.mesh.position.add(d.velocity.clone().multiplyScalar(delta));
+        d.mesh.rotation.x += delta * 5;
+        d.mesh.rotation.z += delta * 3;
+      }
+
+      this.composer.render();
+      requestAnimationFrame(animateDebris);
+    };
+
+    animateDebris();
+
+    // Clean up debris after delay
+    setTimeout(() => {
+      for (const d of this.debris) {
+        this.scene.remove(d.mesh);
+        d.mesh.geometry.dispose();
+        (d.mesh.material as THREE.Material).dispose();
+      }
+      this.debris = [];
+    }, 2000);
+  }
+
+  private resetPlayer(position: THREE.Vector3): void {
+    this.player.position.copy(position);
+    this.playerVelocity.set(0, 0, 0);
+    this.playerAngle = 0;
+    this.player.rotation.set(0, 0, 0);
+    this.hasStartedMoving = false;
+    this.player.visible = true;
   }
 
   private updateCameraDistance(isPortrait: boolean): void {
