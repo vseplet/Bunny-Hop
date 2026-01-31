@@ -29,6 +29,25 @@ declare global {
         landscape: { width: number; height: number };
         portrait: { width: number; height: number };
       };
+      physics: {
+        gravity: number;
+        moveSpeed: number;
+        turnSpeed: number;
+        jumpForce: number;
+        jumpCut: number;
+      };
+      platforms: {
+        start: { width: number; height: number; depth: number };
+        tutorial: { count: number; gap: number; size: number };
+        main: { count: number };
+      };
+      recordLight: {
+        intensity: number;
+        distance: number;
+        orbitRadius: number;
+        orbitSpeed: number;
+        sphereRadius: number;
+      };
       poki: {
         enabled: boolean;
         debug: boolean;
@@ -63,6 +82,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       renderer: window.config.renderer,
       camera: window.config.camera,
       scale: window.config.scale,
+      physics: window.config.physics,
+      platforms: window.config.platforms,
+      recordLight: window.config.recordLight,
     },
     container
   );

@@ -73,6 +73,28 @@ const config = createConfig("base", {
       portrait: { width: 720, height: 1280 },
     },
 
+    physics: {
+      gravity: 30,
+      moveSpeed: 7,
+      turnSpeed: 1.5,
+      jumpForce: 14,
+      jumpCut: 0.4,
+    },
+
+    platforms: {
+      start: { width: 6, height: 1, depth: 10 },
+      tutorial: { count: 5, gap: 5, size: 3 },
+      main: { count: 95 },
+    },
+
+    recordLight: {
+      intensity: 15,
+      distance: 30,
+      orbitRadius: 2.5,
+      orbitSpeed: 2,
+      sphereRadius: 0.4,
+    },
+
     poki: {
       enabled: true,
       debug: true,

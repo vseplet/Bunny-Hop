@@ -26,6 +26,25 @@ export interface GameConfig {
     landscape: { width: number; height: number };
     portrait: { width: number; height: number };
   };
+  physics: {
+    gravity: number;
+    moveSpeed: number;
+    turnSpeed: number;
+    jumpForce: number;
+    jumpCut: number;
+  };
+  platforms: {
+    start: { width: number; height: number; depth: number };
+    tutorial: { count: number; gap: number; size: number };
+    main: { count: number };
+  };
+  recordLight: {
+    intensity: number;
+    distance: number;
+    orbitRadius: number;
+    orbitSpeed: number;
+    sphereRadius: number;
+  };
 }
 
 interface Platform {
@@ -34,6 +53,9 @@ interface Platform {
 }
 
 export class Game {
+  // Config
+  private config: GameConfig;
+
   // Three.js
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -49,13 +71,6 @@ export class Game {
 
   // Platforms
   private platforms: Platform[] = [];
-
-  // Physics constants
-  private readonly GRAVITY = 30;
-  private readonly MOVE_SPEED = 8;
-  private readonly TURN_SPEED = 1.5;
-  private readonly JUMP_FORCE = 14;
-  private readonly JUMP_CUT = 0.4; // Velocity multiplier when jump released early
 
   // Jump state
   private isJumping = false;
@@ -92,6 +107,9 @@ export class Game {
 
   // Lights
   private sun!: THREE.DirectionalLight;
+  private recordLight: THREE.PointLight | null = null;
+  private recordLightMesh: THREE.Mesh | null = null;
+  private recordLightAngle = 0;
 
   // Camera settings (updated based on orientation)
   private camDistance = 8;
@@ -105,6 +123,8 @@ export class Game {
     config: GameConfig,
     private container: HTMLElement
   ) {
+    this.config = config;
+
     // Scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87ceeb);
@@ -178,25 +198,25 @@ export class Game {
   }
 
   private createPlatforms(): void {
-    // Starting platform - elongated for player to get used to controls
-    // Positioned so back edge is at Z=0, extends to Z=-20
-    this.addStartPlatform(0, 0, -10, 6, 1, 20);
+    const { start, tutorial, main } = this.config.platforms;
 
-    // Tutorial section: first 5 platforms at same height and distance
-    const tutorialGap = 5;
-    const tutorialPlatformSize = 3;
-    let currentZ = -20; // End of start platform
+    // Starting platform - for player to get used to controls
+    const startCenterZ = -start.depth / 2;
+    this.addStartPlatform(0, 0, startCenterZ, start.width, start.height, start.depth);
 
-    for (let i = 0; i < 5; i++) {
-      currentZ -= tutorialGap;
-      this.addPlatform(0, 0, currentZ, tutorialPlatformSize, 0.5, tutorialPlatformSize, 0x4a9d4a);
+    // Tutorial section: platforms at same height and distance
+    let currentZ = -start.depth;
+
+    for (let i = 0; i < tutorial.count; i++) {
+      currentZ -= tutorial.gap;
+      this.addPlatform(0, 0, currentZ, tutorial.size, 0.5, tutorial.size, 0x4a9d4a);
     }
 
     // Main game section: random platforms
     let currentY = 0;
     let currentX = 0;
 
-    for (let i = 0; i < 95; i++) {
+    for (let i = 0; i < main.count; i++) {
       // Random gap between platforms (4-7 units - within jump range)
       const gap = 4 + Math.random() * 3;
       currentZ -= gap;
@@ -213,7 +233,7 @@ export class Game {
       const size = 2 + Math.random() * 1.5;
 
       // Color gradient from green to blue as you progress
-      const progress = i / 95;
+      const progress = i / main.count;
       const color = new THREE.Color().setHSL(0.3 - progress * 0.2, 0.6, 0.4);
 
       this.addPlatform(currentX, currentY, currentZ, size, 0.5, size, color.getHex());
@@ -399,8 +419,8 @@ export class Game {
     }
 
     // --- Turning ---
-    if (this.keys.left) this.playerAngle += this.TURN_SPEED * delta;
-    if (this.keys.right) this.playerAngle -= this.TURN_SPEED * delta;
+    if (this.keys.left) this.playerAngle += this.config.physics.turnSpeed * delta;
+    if (this.keys.right) this.playerAngle -= this.config.physics.turnSpeed * delta;
 
     // Update player visual rotation
     this.player.rotation.y = this.playerAngle;
@@ -412,8 +432,8 @@ export class Game {
         0,
         -Math.cos(this.playerAngle)
       );
-      this.playerVelocity.x = moveDir.x * this.MOVE_SPEED;
-      this.playerVelocity.z = moveDir.z * this.MOVE_SPEED;
+      this.playerVelocity.x = moveDir.x * this.config.physics.moveSpeed;
+      this.playerVelocity.z = moveDir.z * this.config.physics.moveSpeed;
     } else {
       this.playerVelocity.x = 0;
       this.playerVelocity.z = 0;
@@ -421,19 +441,19 @@ export class Game {
 
     // --- Gravity ---
     if (!this.isGrounded) {
-      this.playerVelocity.y -= this.GRAVITY * delta;
+      this.playerVelocity.y -= this.config.physics.gravity * delta;
     }
 
     // --- Jump ---
     if (this.keys.jump && this.isGrounded) {
-      this.playerVelocity.y = this.JUMP_FORCE;
+      this.playerVelocity.y = this.config.physics.jumpForce;
       this.isGrounded = false;
       this.isJumping = true;
     }
 
     // Variable jump height - cut velocity when button released early
     if (!this.keys.jump && this.isJumping && this.playerVelocity.y > 0) {
-      this.playerVelocity.y *= this.JUMP_CUT;
+      this.playerVelocity.y *= this.config.physics.jumpCut;
       this.isJumping = false;
     }
 
@@ -479,6 +499,25 @@ export class Game {
       this.player.position.z + 20
     );
     this.sun.target.position.copy(this.player.position);
+
+    // --- Update record light orbit (vertical X-Y plane) ---
+    if (this.recordLight && this.highScore > 0 && this.highScore < this.platforms.length) {
+      const platform = this.platforms[this.highScore];
+      const center = platform.mesh.position;
+      const { orbitRadius, orbitSpeed } = this.config.recordLight;
+
+      this.recordLightAngle += delta * orbitSpeed;
+      const lightPos = new THREE.Vector3(
+        center.x + Math.cos(this.recordLightAngle) * orbitRadius,
+        center.y + 1.5 + Math.sin(this.recordLightAngle) * orbitRadius,
+        center.z
+      );
+      this.recordLight.position.copy(lightPos);
+
+      if (this.recordLightMesh) {
+        this.recordLightMesh.position.copy(lightPos);
+      }
+    }
 
     // --- Render ---
     this.composer.render();
@@ -726,6 +765,7 @@ export class Game {
     } catch {
       this.highScore = 0;
     }
+    this.updateRecordLight();
   }
 
   private saveHighScore(score: number): void {
@@ -736,7 +776,44 @@ export class Game {
       } catch {
         // localStorage not available
       }
+      this.updateRecordLight();
     }
+  }
+
+  private updateRecordLight(): void {
+    // Remove existing light and mesh
+    if (this.recordLight) {
+      this.scene.remove(this.recordLight);
+      this.recordLight = null;
+    }
+    if (this.recordLightMesh) {
+      this.scene.remove(this.recordLightMesh);
+      this.recordLightMesh = null;
+    }
+
+    // Don't show light if no high score or high score is 0
+    if (this.highScore <= 0) return;
+
+    // Platform index: 0 is start, 1-5 are tutorial, 6+ are random
+    // High score of N means player reached N platforms, so light goes on platform N
+    const platformIndex = this.highScore;
+    if (platformIndex >= this.platforms.length) return;
+
+    // Create orbiting point light (golden color)
+    const { intensity, distance, sphereRadius } = this.config.recordLight;
+    this.recordLight = new THREE.PointLight(0xffd700, intensity, distance);
+    this.recordLight.castShadow = false;
+    this.scene.add(this.recordLight);
+
+    // Create glowing sphere to mark the light position
+    const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 16, 16);
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0.9,
+    });
+    this.recordLightMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    this.scene.add(this.recordLightMesh);
   }
 
   public stop(): void {
