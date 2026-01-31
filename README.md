@@ -1,35 +1,154 @@
 # Bunny Hop
 
-3D platformer game built with Three.js and Bun for Poki.com
+3D platformer game built with Three.js and Bun for Poki.com. Quake-style bhop/defrag gameplay where you jump across procedurally generated platforms.
 
-## Features
+## Gameplay
 
-- 🎮 **3D Platformer Gameplay**
-  - Physics-based movement with Cannon-es
-  - Third-person camera
-  - Jump between platforms
+- Jump across 100+ procedurally generated platforms
+- Track your maximum distance
+- Watch rewarded ads to continue from the nearest platform after falling
+- Platforms vary in height and position for challenging gameplay
 
-- 🕹️ **Controls**
-  - Desktop: WASD/Arrow Keys + Space to jump
-  - Mobile: Virtual joystick + Jump button
+## Architecture
 
-- ⚡ **Tech Stack**
-  - [Bun](https://bun.sh) for fast development
-  - Three.js for 3D graphics
-  - Cannon-es for physics (~100KB)
-  - Poki SDK integration
+### Tech Stack
 
-- 🔥 **Development**
-  - Hot reload in development mode
-  - Optimized production builds
-  - Biome for linting and formatting
-  - Git hooks with Lefthook
+- **Runtime**: [Bun](https://bun.sh) >= 1.0
+- **3D Graphics**: Three.js
+- **Physics**: Custom AABB collision detection (no physics engine)
+- **Monetization**: Poki SDK (rewarded ads)
+- **Linting**: Biome
+- **Git Hooks**: Lefthook
+
+### Source Files
+
+```
+source/
+├── main.ts      # Entry point, game initialization, start screen
+├── game.ts      # Game class with physics, rendering, platforms
+├── controls.ts  # Virtual joystick for mobile
+├── poki.ts      # Poki SDK wrapper
+└── poki.d.ts    # TypeScript definitions for PokiSDK
+```
+
+### Game Class (`game.ts`)
+
+The main game logic:
+
+**Physics System**
+- Custom AABB (Axis-Aligned Bounding Box) collision detection
+- Simple velocity-based movement without physics engine overhead
+- Constants: `GRAVITY = 30`, `MOVE_SPEED = 10`, `JUMP_FORCE = 12`
+
+**Platform Generation**
+- 100 platforms generated procedurally going forward (-Z direction)
+- Gap between platforms: 4-7 units (within jump range)
+- Height variation: -1 to +2 units per platform
+- Color gradient from green to blue as you progress
+- Golden finish platform at the end
+
+**Shadows**
+- Directional light follows player for consistent shadows
+- Platforms cast shadows on each other
+- Shadow map: 2048x2048
+
+**Update Loop**
+```
+1. Process input (WASD/arrows or mobile joystick)
+2. Apply horizontal velocity
+3. Apply gravity (if not grounded)
+4. Handle jump (if grounded + space/button pressed)
+5. Move player by velocity * deltaTime
+6. Detect and resolve collisions with platforms
+7. Track max distance
+8. Update camera position (lerp follow)
+9. Update sun position for shadows
+10. Render
+```
+
+### Controls (`controls.ts`)
+
+**Desktop**
+- WASD or Arrow Keys to move
+- Space to jump
+
+**Mobile** (VirtualJoystick class)
+- Left side: Virtual joystick for movement
+- Right side: Jump button
+- Touch detection via `ontouchstart` and `navigator.maxTouchPoints`
+- Controls hidden until game starts
+
+### Overlay System
+
+All overlays are created dynamically with inline CSS:
+
+**Start Screen** (`main.ts: showStartScreen`)
+- Full-screen dark overlay (rgba 0,0,0,0.8)
+- Title: "Bunny Hop" with emoji
+- Platform-specific instructions (mobile vs desktop)
+- "START GAME" button
+- Removed on click, triggers `startGame()`
+
+**Fall Prompt** (`game.ts: showFallPrompt`)
+- Appears when player falls below Y = -20
+- Shows distance reached
+- Two options:
+  - "Watch Ad to Continue" → calls `poki.rewardedBreak()`
+  - "Restart from Beginning" → respawns at start
+- If ad watched successfully, respawns on nearest platform
+
+**Distance UI** (`game.ts: createUI`)
+- Fixed position top-left
+- Shows "Distance: Xm"
+- Updates only when max distance increases
+- Resets to 0 on restart
+
+### Poki SDK Integration (`poki.ts`)
+
+Wrapper with safe fallbacks when SDK unavailable:
+
+```typescript
+poki.init()              // Initialize SDK
+poki.gameLoadingFinished() // Loading complete
+poki.gameplayStart()     // Player started playing
+poki.gameplayStop()      // Player stopped (menu, ad, etc)
+poki.rewardedBreak()     // Show rewarded video ad
+poki.commercialBreak()   // Show interstitial ad
+```
+
+**Game Flow**
+```
+DOMContentLoaded
+  → poki.init()
+  → Create Game instance
+  → Create VirtualJoystick (hidden)
+  → poki.gameLoadingFinished()
+  → Show start screen
+
+Click "START GAME"
+  → Show mobile controls (if touch device)
+  → game.start()
+  → poki.gameplayStart()
+
+Player falls
+  → game.stop()
+  → poki.gameplayStop()
+  → Show fall prompt
+  → If watch ad: poki.rewardedBreak() → respawn on platform
+  → Else: respawn at start
+  → game.start()
+  → poki.gameplayStart()
+
+Tab hidden (visibility change)
+  → game.stop()
+  → poki.gameplayStop()
+
+Tab visible
+  → game.start()
+  → poki.gameplayStart()
+```
 
 ## Getting Started
-
-### Prerequisites
-
-- [Bun](https://bun.sh) >= 1.0
 
 ### Installation
 
@@ -61,7 +180,7 @@ bun run preview
 
 ### Create Bundle
 
-Create a zip archive for deployment:
+Create a zip archive for Poki deployment:
 
 ```bash
 bun run bundle
@@ -81,7 +200,6 @@ bunny-hop/
 │   ├── build/       # Build system
 │   └── cli.ts       # CLI entry point
 ├── source/          # Source code
-│   └── main.ts      # Entry point
 └── target/          # Build output
 ```
 
@@ -96,80 +214,7 @@ bunny-hop/
 - `bun run check` - Check code quality
 - `bun run fix` - Fix code issues
 
-## Poki SDK Integration
-
-The game includes full Poki SDK integration:
-
-### Basic Usage
-
-```typescript
-import { poki } from "./poki.ts";
-
-// Initialize SDK (done automatically on game start)
-await poki.init();
-
-// Signal loading finished
-poki.gameLoadingFinished();
-
-// Start gameplay
-poki.gameplayStart();
-
-// Stop gameplay
-poki.gameplayStop();
-```
-
-### Commercial Breaks
-
-```typescript
-import { showCommercialBreak } from "./helpers.ts";
-
-// Show ad before level start
-await showCommercialBreak({
-  muteAudio: () => audioManager.mute(),
-  unmuteAudio: () => audioManager.unmute(),
-  disableInput: () => inputManager.disable(),
-  enableInput: () => inputManager.enable(),
-});
-
-poki.gameplayStart();
-```
-
-### Rewarded Breaks
-
-```typescript
-import { showRewardedBreak } from "./helpers.ts";
-
-// Show rewarded ad
-const watched = await showRewardedBreak({
-  size: "medium", // small, medium, or large
-  muteAudio: () => audioManager.mute(),
-  unmuteAudio: () => audioManager.unmute(),
-});
-
-if (watched) {
-  // Give player reward
-  player.addCoins(100);
-}
-```
-
-### Game Flow Example
-
-```typescript
-// Game start (click to play)
-poki.gameplayStart();
-
-// Level complete
-poki.gameplayStop();
-await showCommercialBreak();
-poki.gameplayStart();
-
-// Game over
-poki.gameplayStop();
-```
-
 ## CI/CD
-
-The project includes GitHub Actions workflows:
 
 ### Workflows
 
@@ -177,7 +222,6 @@ The project includes GitHub Actions workflows:
   - Lints code with Biome
   - Type checks with TypeScript
   - Builds production bundle
-  - No setup required!
 
 - **Deploy** - Deploys to Vercel on push to master
   - Requires: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`
@@ -191,7 +235,6 @@ The project includes GitHub Actions workflows:
 ### Creating a Release
 
 ```bash
-# Create and push a version tag
 git tag v0.1.0
 git push origin v0.1.0
 ```

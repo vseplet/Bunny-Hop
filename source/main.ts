@@ -60,8 +60,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     container
   );
 
-  // Create virtual joystick for mobile
+  // Create virtual joystick for mobile (hidden initially)
   joystick = new VirtualJoystick();
+  joystick.hide();
   joystick.onUpdate((dx, dy, jump) => {
     game.setMobileControls(dx, dy, jump);
   });
@@ -98,6 +99,8 @@ function showStartScreen(): void {
     font-size: 64px;
     margin-bottom: 20px;
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    width: 100%;
   `;
 
   const instructions = document.createElement("div");
@@ -160,6 +163,12 @@ function showStartScreen(): void {
 
 function startGame(): void {
   console.log("[Game] Starting gameplay");
+
+  // Show mobile controls on touch devices
+  const isMobile = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  if (isMobile) {
+    joystick.show();
+  }
 
   // Start physics and rendering
   game.start();

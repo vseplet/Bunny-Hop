@@ -4,6 +4,7 @@
  */
 
 import * as THREE from "three";
+import { poki } from "./poki.ts";
 
 export interface GameConfig {
   renderer: {
@@ -55,8 +56,18 @@ export class Game {
   private isPlaying = false;
   private clock = new THREE.Clock();
 
+  // Progress tracking
+  private maxDistance = 0;
+  private distanceUI!: HTMLElement;
+
+  // Checkpoint for rewarded ads
+  private isFalling = false;
+
   // Camera
   private cameraOffset = new THREE.Vector3(0, 5, 10);
+
+  // Lights
+  private sun!: THREE.DirectionalLight;
 
   constructor(
     _config: GameConfig,
@@ -65,6 +76,7 @@ export class Game {
     // Scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x87ceeb);
+    this.scene.fog = new THREE.Fog(0x87ceeb, 50, 200);
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
@@ -86,6 +98,7 @@ export class Game {
     this.createPlatforms();
     this.createLights();
     this.setupControls();
+    this.createUI();
 
     // Events
     window.addEventListener("resize", this.onResize);
@@ -105,48 +118,99 @@ export class Game {
   }
 
   private createPlatforms(): void {
-    const platformData = [
-      // Ground
-      { x: 0, y: 0, z: 0, w: 20, h: 1, d: 20, color: 0x4a9d4a },
-      // Platforms
-      { x: 5, y: 2, z: 0, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
-      { x: -5, y: 4, z: 3, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
-      { x: 0, y: 6, z: -5, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
-      { x: 7, y: 8, z: -3, w: 3, h: 0.5, d: 3, color: 0x6b8e23 },
-    ];
+    // Starting platform (larger)
+    this.addPlatform(0, 0, 0, 6, 1, 6, 0x4a9d4a);
 
-    for (const p of platformData) {
-      const geometry = new THREE.BoxGeometry(p.w, p.h, p.d);
-      const material = new THREE.MeshStandardMaterial({
-        color: p.color,
-        roughness: 0.8,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(p.x, p.y, p.z);
-      mesh.receiveShadow = true;
-      mesh.castShadow = true;
-      this.scene.add(mesh);
+    // Generate 100 platforms going forward (-Z direction)
+    let currentZ = -6;
+    let currentY = 0;
+    let currentX = 0;
 
-      // Create bounding box
-      const box = new THREE.Box3().setFromObject(mesh);
-      this.platforms.push({ mesh, box });
+    for (let i = 0; i < 100; i++) {
+      // Random gap between platforms (4-7 units - within jump range)
+      const gap = 4 + Math.random() * 3;
+      currentZ -= gap;
+
+      // Random height change (-1 to +2 units)
+      const heightChange = Math.random() * 3 - 1;
+      currentY = Math.max(0, currentY + heightChange);
+
+      // Slight X variation for more interesting path
+      currentX += (Math.random() - 0.5) * 4;
+      currentX = Math.max(-15, Math.min(15, currentX)); // Keep within bounds
+
+      // Platform size varies slightly
+      const size = 2 + Math.random() * 1.5;
+
+      // Color gradient from green to blue as you progress
+      const progress = i / 100;
+      const color = new THREE.Color().setHSL(0.3 - progress * 0.2, 0.6, 0.4);
+
+      this.addPlatform(currentX, currentY, currentZ, size, 0.5, size, color.getHex());
     }
+
+    // Final platform (goal)
+    this.addPlatform(currentX, currentY, currentZ - 8, 8, 1, 8, 0xffd700);
+  }
+
+  private addPlatform(
+    x: number,
+    y: number,
+    z: number,
+    w: number,
+    h: number,
+    d: number,
+    color: number
+  ): void {
+    const geometry = new THREE.BoxGeometry(w, h, d);
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.8,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    this.scene.add(mesh);
+
+    const box = new THREE.Box3().setFromObject(mesh);
+    this.platforms.push({ mesh, box });
   }
 
   private createLights(): void {
     const ambient = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambient);
 
-    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-    sun.position.set(10, 20, 10);
-    sun.castShadow = true;
-    sun.shadow.mapSize.width = 2048;
-    sun.shadow.mapSize.height = 2048;
-    sun.shadow.camera.left = -20;
-    sun.shadow.camera.right = 20;
-    sun.shadow.camera.top = 20;
-    sun.shadow.camera.bottom = -20;
-    this.scene.add(sun);
+    this.sun = new THREE.DirectionalLight(0xffffff, 0.8);
+    this.sun.position.set(10, 30, 10);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.width = 2048;
+    this.sun.shadow.mapSize.height = 2048;
+    this.sun.shadow.camera.left = -30;
+    this.sun.shadow.camera.right = 30;
+    this.sun.shadow.camera.top = 30;
+    this.sun.shadow.camera.bottom = -30;
+    this.sun.shadow.camera.near = 1;
+    this.sun.shadow.camera.far = 100;
+    this.scene.add(this.sun);
+    this.scene.add(this.sun.target);
+  }
+
+  private createUI(): void {
+    this.distanceUI = document.createElement("div");
+    this.distanceUI.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      font-family: 'Arial', sans-serif;
+      font-size: 24px;
+      font-weight: bold;
+      color: white;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      z-index: 100;
+    `;
+    this.distanceUI.textContent = "Distance: 0m";
+    document.body.appendChild(this.distanceUI);
   }
 
   private setupControls(): void {
@@ -249,16 +313,31 @@ export class Game {
       }
     }
 
-    // --- Fall reset ---
-    if (this.player.position.y < -10) {
-      this.player.position.set(0, 5, 0);
-      this.playerVelocity.set(0, 0, 0);
+    // --- Track distance ---
+    const currentDistance = Math.max(0, -this.player.position.z);
+    if (currentDistance > this.maxDistance) {
+      this.maxDistance = currentDistance;
+      this.distanceUI.textContent = `Distance: ${Math.floor(this.maxDistance)}m`;
+    }
+
+    // --- Fall reset with rewarded ad ---
+    if (this.player.position.y < -20 && !this.isFalling) {
+      this.isFalling = true;
+      this.handleFall();
     }
 
     // --- Camera ---
     const targetCamPos = this.player.position.clone().add(this.cameraOffset);
     this.camera.position.lerp(targetCamPos, 0.1);
     this.camera.lookAt(this.player.position);
+
+    // --- Update sun position to follow player ---
+    this.sun.position.set(
+      this.player.position.x + 20,
+      this.player.position.y + 40,
+      this.player.position.z + 20
+    );
+    this.sun.target.position.copy(this.player.position);
 
     // --- Render ---
     this.renderer.render(this.scene, this.camera);
@@ -331,6 +410,139 @@ export class Game {
     }
 
     this.updatePlayerBox();
+  }
+
+  private findNearestPlatform(): THREE.Vector3 {
+    const playerPos = this.player.position;
+    let nearestPlatform = this.platforms[0];
+    let minDistance = Infinity;
+
+    for (const platform of this.platforms) {
+      const platformCenter = new THREE.Vector3();
+      platform.box.getCenter(platformCenter);
+
+      // Calculate horizontal distance (ignore Y for finding nearest)
+      const dx = platformCenter.x - playerPos.x;
+      const dz = platformCenter.z - playerPos.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestPlatform = platform;
+      }
+    }
+
+    // Return position on top of the platform
+    const spawnPos = new THREE.Vector3();
+    nearestPlatform.box.getCenter(spawnPos);
+    spawnPos.y = nearestPlatform.box.max.y + 1;
+    return spawnPos;
+  }
+
+  private async handleFall(): Promise<void> {
+    this.stop();
+    poki.gameplayStop();
+
+    const nearestPlatform = this.findNearestPlatform();
+    const distanceFromStart = Math.abs(nearestPlatform.z);
+
+    // Only show rewarded ad if player made progress
+    if (distanceFromStart > 10) {
+      const watchAd = await this.showFallPrompt(distanceFromStart);
+
+      if (watchAd) {
+        const watched = await poki.rewardedBreak();
+        if (watched) {
+          // Respawn at nearest platform
+          this.player.position.copy(nearestPlatform);
+          this.playerVelocity.set(0, 0, 0);
+          this.isFalling = false;
+          this.start();
+          poki.gameplayStart();
+          return;
+        }
+      }
+    }
+
+    // Respawn at start
+    this.player.position.set(0, 3, 0);
+    this.playerVelocity.set(0, 0, 0);
+    this.maxDistance = 0;
+    this.distanceUI.textContent = "Distance: 0m";
+    this.isFalling = false;
+    this.start();
+    poki.gameplayStart();
+  }
+
+  private showFallPrompt(distance: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        color: white;
+        font-family: Arial, sans-serif;
+      `;
+
+      const title = document.createElement("h2");
+      title.textContent = "You fell!";
+      title.style.cssText = "font-size: 48px; margin-bottom: 10px;";
+
+      const distanceText = document.createElement("p");
+      distanceText.textContent = `You were at ${Math.floor(distance)}m`;
+      distanceText.style.cssText = "font-size: 24px; margin-bottom: 30px; color: #aaa;";
+
+      const watchBtn = document.createElement("button");
+      watchBtn.textContent = "📺 Watch Ad to Continue";
+      watchBtn.style.cssText = `
+        padding: 20px 40px;
+        font-size: 20px;
+        font-weight: bold;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        margin-bottom: 15px;
+      `;
+
+      const skipBtn = document.createElement("button");
+      skipBtn.textContent = "Restart from Beginning";
+      skipBtn.style.cssText = `
+        padding: 15px 30px;
+        font-size: 16px;
+        background: transparent;
+        color: #888;
+        border: 2px solid #888;
+        border-radius: 10px;
+        cursor: pointer;
+      `;
+
+      watchBtn.onclick = () => {
+        overlay.remove();
+        resolve(true);
+      };
+
+      skipBtn.onclick = () => {
+        overlay.remove();
+        resolve(false);
+      };
+
+      overlay.appendChild(title);
+      overlay.appendChild(distanceText);
+      overlay.appendChild(watchBtn);
+      overlay.appendChild(skipBtn);
+      document.body.appendChild(overlay);
+    });
   }
 
   private onResize = (): void => {
