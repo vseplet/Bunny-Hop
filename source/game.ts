@@ -3,6 +3,7 @@
  * Simple 3D platformer with custom physics
  */
 
+import { Easing, Group, Tween } from "@tweenjs/tween.js";
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
@@ -110,6 +111,9 @@ export class Game {
   private recordLight: THREE.PointLight | null = null;
   private recordLightMesh: THREE.Mesh | null = null;
   private recordLightAngle = 0;
+
+  // Animation
+  private tweenGroup = new Group();
 
   // Camera settings (updated based on orientation)
   private camDistance = 8;
@@ -449,6 +453,7 @@ export class Game {
       this.playerVelocity.y = this.config.physics.jumpForce;
       this.isGrounded = false;
       this.isJumping = true;
+      this.doFlip();
     }
 
     // Variable jump height - cut velocity when button released early
@@ -518,6 +523,9 @@ export class Game {
         this.recordLightMesh.position.copy(lightPos);
       }
     }
+
+    // --- Update tweens ---
+    this.tweenGroup.update();
 
     // --- Render ---
     this.composer.render();
@@ -750,6 +758,25 @@ export class Game {
 
   public enableInput(): void {
     this.isInputEnabled = true;
+  }
+
+  private doFlip(): void {
+    // Random flip direction
+    const axes = ["x", "z"] as const;
+    const axis = axes[Math.floor(Math.random() * axes.length)];
+    const direction = Math.random() > 0.5 ? 1 : -1;
+    const flipObj = { angle: 0 };
+
+    new Tween(flipObj, this.tweenGroup)
+      .to({ angle: Math.PI * 2 * direction }, 600)
+      .easing(Easing.Quadratic.InOut)
+      .onUpdate(() => {
+        this.player.rotation[axis] = flipObj.angle;
+      })
+      .onComplete(() => {
+        this.player.rotation[axis] = 0;
+      })
+      .start();
   }
 
   private updateCameraDistance(isPortrait: boolean): void {
