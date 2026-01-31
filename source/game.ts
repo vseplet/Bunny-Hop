@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPixelatedPass } from "three/addons/postprocessing/RenderPixelatedPass.js";
+import { audio } from "./audio.ts";
 import { poki } from "./poki.ts";
 import { ScaleManager } from "./scale.ts";
 
@@ -117,6 +118,10 @@ export class Game {
 
   // Death effect
   private debris: { mesh: THREE.Mesh; velocity: THREE.Vector3 }[] = [];
+
+  // Intro camera orbit
+  private introMode = true;
+  private introAngle = 0;
 
   // Camera settings (updated based on orientation)
   private camDistance = 8;
@@ -427,8 +432,8 @@ export class Game {
       position: fixed;
       top: 3vmin;
       left: 3vmin;
-      font-family: 'Arial', sans-serif;
-      font-size: 4vmin;
+      font-family: 'Jersey 10', Arial, sans-serif;
+      font-size: 7vmin;
       font-weight: bold;
       color: white;
       text-shadow: 0.3vmin 0.3vmin 0.6vmin rgba(0, 0, 0, 0.5);
@@ -496,6 +501,22 @@ export class Game {
   }
 
   private update(delta: number): void {
+    // --- Intro camera orbit ---
+    if (this.introMode) {
+      this.introAngle += delta * 0.3;
+      const orbitRadius = 12;
+      const orbitHeight = 6;
+      const centerZ = -this.config.platforms.start.depth / 2;
+      this.camera.position.set(
+        Math.sin(this.introAngle) * orbitRadius,
+        orbitHeight,
+        centerZ + Math.cos(this.introAngle) * orbitRadius
+      );
+      this.camera.lookAt(0, 1, centerZ);
+      this.composer.render();
+      return;
+    }
+
     // --- Don't process input until enabled ---
     if (!this.isInputEnabled) {
       // Just render the scene
@@ -542,6 +563,7 @@ export class Game {
       this.isGrounded = false;
       this.isJumping = true;
       this.doFlip();
+      audio.playJump();
     }
 
     // Variable jump height - cut velocity when button released early
@@ -779,7 +801,7 @@ export class Game {
         justify-content: center;
         z-index: 1000;
         color: white;
-        font-family: Arial, sans-serif;
+        font-family: 'Jersey 10', Arial, sans-serif;
       `;
 
       // Save high score
@@ -788,40 +810,47 @@ export class Game {
 
       const title = document.createElement("h2");
       title.textContent = isNewRecord ? "🎉 New Record!" : "You fell!";
-      title.style.cssText = "font-size: 8vmin; margin-bottom: 2vmin;";
+      title.style.cssText = "font-size: 14vmin; margin-bottom: 2vmin;";
 
       const progressText = document.createElement("p");
       progressText.textContent = `Platforms: ${platforms}`;
-      progressText.style.cssText = "font-size: 4vmin; margin-bottom: 1vmin; color: #aaa;";
+      progressText.style.cssText = "font-size: 7vmin; margin-bottom: 1vmin; color: #aaa;";
 
       const highScoreText = document.createElement("p");
       highScoreText.textContent = `Best: ${this.highScore}`;
-      highScoreText.style.cssText = "font-size: 3.5vmin; margin-bottom: 5vmin; color: #ffd700;";
+      highScoreText.style.cssText = "font-size: 6vmin; margin-bottom: 5vmin; color: #ffd700;";
 
       const watchBtn = document.createElement("button");
-      watchBtn.textContent = "📺 Watch Ad to Continue";
+      watchBtn.textContent = "WATCH AD";
       watchBtn.style.cssText = `
-        padding: 3vmin 6vmin;
-        font-size: 3.5vmin;
+        padding: 3vmin 8vmin;
+        font-size: 8vmin;
+        font-family: 'Jersey 10', Arial, sans-serif;
         font-weight: bold;
         background: #4CAF50;
         color: white;
         border: none;
-        border-radius: 2vmin;
+        border-radius: 0;
         cursor: pointer;
         margin-bottom: 2vmin;
+        box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
+        transition: all 0.3s;
       `;
 
       const skipBtn = document.createElement("button");
-      skipBtn.textContent = "Restart from Beginning";
+      skipBtn.textContent = "RESTART";
       skipBtn.style.cssText = `
-        padding: 2vmin 4vmin;
-        font-size: 3vmin;
-        background: transparent;
-        color: #888;
-        border: 0.3vmin solid #888;
-        border-radius: 2vmin;
+        padding: 3vmin 8vmin;
+        font-size: 8vmin;
+        font-family: 'Jersey 10', Arial, sans-serif;
+        font-weight: bold;
+        background: #2196F3;
+        color: white;
+        border: none;
+        border-radius: 0;
         cursor: pointer;
+        box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
+        transition: all 0.3s;
       `;
 
       watchBtn.onclick = () => {
@@ -852,6 +881,8 @@ export class Game {
 
   public enableInput(): void {
     this.isInputEnabled = true;
+    this.introMode = false;
+    audio.playStart();
   }
 
   private doFlip(): void {
@@ -874,6 +905,8 @@ export class Game {
   }
 
   private explodePlayer(): void {
+    audio.playDeath();
+
     const pos = this.player.position.clone();
     const debrisCount = 20;
     const cubeSize = 0.2;
@@ -952,6 +985,7 @@ export class Game {
     this.player.rotation.set(0, 0, 0);
     this.hasStartedMoving = false;
     this.player.visible = true;
+    audio.playStart();
   }
 
   private updateCameraDistance(isPortrait: boolean): void {

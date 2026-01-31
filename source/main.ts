@@ -122,13 +122,13 @@ function showStartScreen(): void {
     justify-content: center;
     z-index: 999;
     color: white;
-    font-family: Arial, sans-serif;
+    font-family: 'Jersey 10', Arial, sans-serif;
   `;
 
   const title = document.createElement("h1");
-  title.textContent = "🐰 Bunny Hop";
+  title.textContent = "Bunny Hop";
   title.style.cssText = `
-    font-size: 10vmin;
+    font-size: 14vmin;
     margin-bottom: 3vmin;
     text-shadow: 0.3vmin 0.3vmin 0.6vmin rgba(0, 0, 0, 0.5);
     text-align: center;
@@ -137,7 +137,7 @@ function showStartScreen(): void {
 
   const instructions = document.createElement("div");
   instructions.style.cssText = `
-    font-size: 3.5vmin;
+    font-size: 6vmin;
     text-align: center;
     margin-bottom: 6vmin;
     line-height: 1.6;
@@ -161,24 +161,25 @@ function showStartScreen(): void {
   startButton.textContent = "START GAME";
   startButton.style.cssText = `
     padding: 3vmin 8vmin;
-    font-size: 4vmin;
+    font-size: 8vmin;
+    font-family: 'Jersey 10', Arial, sans-serif;
     font-weight: bold;
-    background: #ff6b6b;
+    background: #2196F3;
     color: white;
     border: none;
-    border-radius: 8vmin;
+    border-radius: 0;
     cursor: pointer;
     transition: all 0.3s;
     box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
   `;
 
   startButton.onmouseover = () => {
-    startButton.style.background = "#ff5252";
+    startButton.style.background = "#1976D2";
     startButton.style.transform = "scale(1.05)";
   };
 
   startButton.onmouseout = () => {
-    startButton.style.background = "#ff6b6b";
+    startButton.style.background = "#2196F3";
     startButton.style.transform = "scale(1)";
   };
 

@@ -37,6 +37,14 @@ export class CssTask extends BaseTask {
 
   private generateCss(): string {
     return `
+@font-face {
+  font-family: 'Jersey 10';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/Jersey10.ttf') format('truetype');
+}
+
 html, body {
   padding: 0;
   margin: 0;
@@ -45,7 +53,7 @@ html, body {
   position: fixed;
   overflow: hidden;
   background-color: ${this.config.backgroundColor};
-  font-family: Arial, sans-serif;
+  font-family: 'Jersey 10', Arial, sans-serif;
 }
 
 body {
