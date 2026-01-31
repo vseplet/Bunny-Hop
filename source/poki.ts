@@ -134,32 +134,22 @@ class PokiService {
     enableInput?: () => void;
   }): Promise<boolean> {
     if (!this.isAvailable) {
-      console.log("[Poki] Rewarded break skipped (SDK not available)");
-      return false;
+      console.log("[Poki] Rewarded break skipped (SDK not available), simulating success");
+      return true; // Simulate successful ad watch for testing
     }
 
     console.log("[Poki] Rewarded break starting...");
-
-    // Pause game
-    this.gameplayStop();
-
-    // Mute audio
-    if (options?.muteAudio) {
-      options.muteAudio();
-    }
-
-    // Disable input
-    if (options?.disableInput) {
-      options.disableInput();
-    }
 
     options?.onStart?.();
 
     let success = false;
 
     try {
-      success = await PokiSDK.rewardedBreak({
-        size: options?.size || "medium",
+      // Poki SDK API: rewardedBreak(callback) returns promise with success boolean
+      // Callback is called right before ad starts
+      success = await PokiSDK.rewardedBreak(() => {
+        options?.muteAudio?.();
+        options?.disableInput?.();
       });
 
       console.log(`[Poki] Rewarded break finished, success: ${success}`);

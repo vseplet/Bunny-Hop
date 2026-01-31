@@ -70,7 +70,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Signal that loading is finished
   poki.gameLoadingFinished();
 
-  // Show start screen
+  // Start game immediately (player won't move until input)
+  game.start();
+
+  // Show start screen overlay
   showStartScreen();
 });
 
@@ -83,7 +86,7 @@ function showStartScreen(): void {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -115,13 +118,13 @@ function showStartScreen(): void {
 
   if (isMobile) {
     instructions.innerHTML = `
-      <p>📱 Use joystick to move</p>
-      <p>🔴 Tap JUMP button to jump</p>
+      <p>📱 Joystick left/right to steer</p>
+      <p>🔴 Tap JUMP to start & jump</p>
     `;
   } else {
     instructions.innerHTML = `
-      <p>⌨️ WASD or Arrow Keys to move</p>
-      <p>⎵ Space to jump</p>
+      <p>⌨️ A/D or ←/→ to steer</p>
+      <p>⎵ Space to start & jump</p>
     `;
   }
 
@@ -170,20 +173,16 @@ function startGame(): void {
     joystick.show();
   }
 
-  // Start physics and rendering
-  game.start();
-
-  // Signal gameplay started
+  // Game is already running, just signal gameplay started
   poki.gameplayStart();
 }
 
-// Handle visibility change (pause when tab is hidden)
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    game?.stop();
-    poki.gameplayStop();
-  } else {
-    game?.start();
-    poki.gameplayStart();
-  }
-});
+// Visibility change handling disabled for now - was causing issues with ad restart
+// document.addEventListener("visibilitychange", () => {
+//   if (!game) return;
+//   if (document.hidden) {
+//     game.stop();
+//   } else {
+//     game.start();
+//   }
+// });

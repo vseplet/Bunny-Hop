@@ -40,8 +40,17 @@ export class Game {
 
   // Physics constants
   private readonly GRAVITY = 30;
-  private readonly MOVE_SPEED = 10;
-  private readonly JUMP_FORCE = 12;
+  private readonly MOVE_SPEED = 8;
+  private readonly TURN_SPEED = 3;
+  private readonly JUMP_FORCE = 14;
+  private readonly JUMP_CUT = 0.4; // Velocity multiplier when jump released early
+
+  // Jump state
+  private isJumping = false;
+
+  // Player rotation
+  private playerAngle = 0; // radians, 0 = forward (-Z)
+  private hasStartedMoving = false;
 
   // Controls
   private keys = {
@@ -57,14 +66,12 @@ export class Game {
   private clock = new THREE.Clock();
 
   // Progress tracking
-  private maxDistance = 0;
-  private distanceUI!: HTMLElement;
+  private platformsReached = 0;
+  private touchedPlatforms = new Set<THREE.Mesh>();
+  private progressUI!: HTMLElement;
 
   // Checkpoint for rewarded ads
   private isFalling = false;
-
-  // Camera
-  private cameraOffset = new THREE.Vector3(0, 5, 10);
 
   // Lights
   private sun!: THREE.DirectionalLight;
@@ -119,10 +126,10 @@ export class Game {
 
   private createPlatforms(): void {
     // Starting platform (larger)
-    this.addPlatform(0, 0, 0, 6, 1, 6, 0x4a9d4a);
+    this.addPlatform(0, 0, 0, 12, 1, 12, 0x4a9d4a);
 
     // Generate 100 platforms going forward (-Z direction)
-    let currentZ = -6;
+    let currentZ = 0;
     let currentY = 0;
     let currentX = 0;
 
@@ -197,8 +204,8 @@ export class Game {
   }
 
   private createUI(): void {
-    this.distanceUI = document.createElement("div");
-    this.distanceUI.style.cssText = `
+    this.progressUI = document.createElement("div");
+    this.progressUI.style.cssText = `
       position: fixed;
       top: 20px;
       left: 20px;
@@ -209,8 +216,8 @@ export class Game {
       text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
       z-index: 100;
     `;
-    this.distanceUI.textContent = "Distance: 0m";
-    document.body.appendChild(this.distanceUI);
+    this.progressUI.textContent = "Platforms: 0";
+    document.body.appendChild(this.progressUI);
   }
 
   private setupControls(): void {
@@ -263,30 +270,41 @@ export class Game {
     });
   }
 
-  public setMobileControls(dx: number, dy: number, jump: boolean): void {
-    this.keys.forward = dy < -0.3;
-    this.keys.backward = dy > 0.3;
-    this.keys.left = dx < -0.3;
-    this.keys.right = dx > 0.3;
+  public setMobileControls(dx: number, _dy: number, jump: boolean): void {
+    // Only use horizontal axis for turning
+    this.keys.left = dx < -0.2;
+    this.keys.right = dx > 0.2;
     this.keys.jump = jump;
   }
 
   private update(delta: number): void {
-    // --- Input ---
-    const moveDir = new THREE.Vector3();
-
-    if (this.keys.forward) moveDir.z -= 1;
-    if (this.keys.backward) moveDir.z += 1;
-    if (this.keys.left) moveDir.x -= 1;
-    if (this.keys.right) moveDir.x += 1;
-
-    if (moveDir.length() > 0) {
-      moveDir.normalize();
+    // --- Check if player started moving ---
+    if (!this.hasStartedMoving) {
+      if (this.keys.left || this.keys.right || this.keys.jump) {
+        this.hasStartedMoving = true;
+      }
     }
 
-    // --- Horizontal movement ---
-    this.playerVelocity.x = moveDir.x * this.MOVE_SPEED;
-    this.playerVelocity.z = moveDir.z * this.MOVE_SPEED;
+    // --- Turning ---
+    if (this.keys.left) this.playerAngle += this.TURN_SPEED * delta;
+    if (this.keys.right) this.playerAngle -= this.TURN_SPEED * delta;
+
+    // Update player visual rotation
+    this.player.rotation.y = this.playerAngle;
+
+    // --- Movement (only after started) ---
+    if (this.hasStartedMoving) {
+      const moveDir = new THREE.Vector3(
+        -Math.sin(this.playerAngle),
+        0,
+        -Math.cos(this.playerAngle)
+      );
+      this.playerVelocity.x = moveDir.x * this.MOVE_SPEED;
+      this.playerVelocity.z = moveDir.z * this.MOVE_SPEED;
+    } else {
+      this.playerVelocity.x = 0;
+      this.playerVelocity.z = 0;
+    }
 
     // --- Gravity ---
     if (!this.isGrounded) {
@@ -297,6 +315,13 @@ export class Game {
     if (this.keys.jump && this.isGrounded) {
       this.playerVelocity.y = this.JUMP_FORCE;
       this.isGrounded = false;
+      this.isJumping = true;
+    }
+
+    // Variable jump height - cut velocity when button released early
+    if (!this.keys.jump && this.isJumping && this.playerVelocity.y > 0) {
+      this.playerVelocity.y *= this.JUMP_CUT;
+      this.isJumping = false;
     }
 
     // --- Apply velocity ---
@@ -310,14 +335,13 @@ export class Game {
     for (const platform of this.platforms) {
       if (this.playerBox.intersectsBox(platform.box)) {
         this.resolveCollision(platform.box);
+        // Track touched platforms
+        if (!this.touchedPlatforms.has(platform.mesh)) {
+          this.touchedPlatforms.add(platform.mesh);
+          this.platformsReached = this.touchedPlatforms.size;
+          this.progressUI.textContent = `Platforms: ${this.platformsReached}`;
+        }
       }
-    }
-
-    // --- Track distance ---
-    const currentDistance = Math.max(0, -this.player.position.z);
-    if (currentDistance > this.maxDistance) {
-      this.maxDistance = currentDistance;
-      this.distanceUI.textContent = `Distance: ${Math.floor(this.maxDistance)}m`;
     }
 
     // --- Fall reset with rewarded ad ---
@@ -326,8 +350,14 @@ export class Game {
       this.handleFall();
     }
 
-    // --- Camera ---
-    const targetCamPos = this.player.position.clone().add(this.cameraOffset);
+    // --- Camera (follows player rotation) ---
+    const camDistance = 10;
+    const camHeight = 5;
+    const targetCamPos = new THREE.Vector3(
+      this.player.position.x + Math.sin(this.playerAngle) * camDistance,
+      this.player.position.y + camHeight,
+      this.player.position.z + Math.cos(this.playerAngle) * camDistance
+    );
     this.camera.position.lerp(targetCamPos, 0.1);
     this.camera.lookAt(this.player.position);
 
@@ -380,6 +410,7 @@ export class Game {
         this.player.position.y = platformBox.max.y + 0.5;
         this.playerVelocity.y = 0;
         this.isGrounded = true;
+        this.isJumping = false;
       } else if (this.playerVelocity.y > 0) {
         // Hitting bottom
         this.player.position.y = platformBox.min.y - 0.5;
@@ -444,11 +475,10 @@ export class Game {
     poki.gameplayStop();
 
     const nearestPlatform = this.findNearestPlatform();
-    const distanceFromStart = Math.abs(nearestPlatform.z);
 
-    // Only show rewarded ad if player made progress
-    if (distanceFromStart > 10) {
-      const watchAd = await this.showFallPrompt(distanceFromStart);
+    // Only show rewarded ad if player made progress (at least 3 platforms)
+    if (this.platformsReached >= 3) {
+      const watchAd = await this.showFallPrompt(this.platformsReached);
 
       if (watchAd) {
         const watched = await poki.rewardedBreak();
@@ -456,6 +486,9 @@ export class Game {
           // Respawn at nearest platform
           this.player.position.copy(nearestPlatform);
           this.playerVelocity.set(0, 0, 0);
+          this.playerAngle = 0;
+          this.player.rotation.y = 0;
+          this.hasStartedMoving = false;
           this.isFalling = false;
           this.start();
           poki.gameplayStart();
@@ -467,14 +500,18 @@ export class Game {
     // Respawn at start
     this.player.position.set(0, 3, 0);
     this.playerVelocity.set(0, 0, 0);
-    this.maxDistance = 0;
-    this.distanceUI.textContent = "Distance: 0m";
+    this.playerAngle = 0;
+    this.player.rotation.y = 0;
+    this.hasStartedMoving = false;
+    this.platformsReached = 0;
+    this.touchedPlatforms.clear();
+    this.progressUI.textContent = "Platforms: 0";
     this.isFalling = false;
     this.start();
     poki.gameplayStart();
   }
 
-  private showFallPrompt(distance: number): Promise<boolean> {
+  private showFallPrompt(platforms: number): Promise<boolean> {
     return new Promise((resolve) => {
       const overlay = document.createElement("div");
       overlay.style.cssText = `
@@ -497,9 +534,9 @@ export class Game {
       title.textContent = "You fell!";
       title.style.cssText = "font-size: 48px; margin-bottom: 10px;";
 
-      const distanceText = document.createElement("p");
-      distanceText.textContent = `You were at ${Math.floor(distance)}m`;
-      distanceText.style.cssText = "font-size: 24px; margin-bottom: 30px; color: #aaa;";
+      const progressText = document.createElement("p");
+      progressText.textContent = `Platforms reached: ${platforms}`;
+      progressText.style.cssText = "font-size: 24px; margin-bottom: 30px; color: #aaa;";
 
       const watchBtn = document.createElement("button");
       watchBtn.textContent = "📺 Watch Ad to Continue";
@@ -538,7 +575,7 @@ export class Game {
       };
 
       overlay.appendChild(title);
-      overlay.appendChild(distanceText);
+      overlay.appendChild(progressText);
       overlay.appendChild(watchBtn);
       overlay.appendChild(skipBtn);
       document.body.appendChild(overlay);
@@ -554,7 +591,8 @@ export class Game {
   public start(): void {
     this.isPlaying = true;
     this.clock.start();
-    this.animate();
+    this.clock.getDelta(); // Reset delta
+    requestAnimationFrame(this.animate);
   }
 
   public stop(): void {
