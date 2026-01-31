@@ -173,7 +173,10 @@ function startGame(): void {
     joystick.show();
   }
 
-  // Game is already running, just signal gameplay started
+  // Enable input now that start was pressed
+  game.enableInput();
+
+  // Signal gameplay started
   poki.gameplayStart();
 }
 

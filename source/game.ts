@@ -63,6 +63,7 @@ export class Game {
 
   // Game state
   private isPlaying = false;
+  private isInputEnabled = false;
   private clock = new THREE.Clock();
 
   // Progress tracking
@@ -87,7 +88,7 @@ export class Game {
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
-      60,
+      75,
       window.innerWidth / window.innerHeight,
       0.1,
       1000
@@ -278,6 +279,13 @@ export class Game {
   }
 
   private update(delta: number): void {
+    // --- Don't process input until enabled ---
+    if (!this.isInputEnabled) {
+      // Just render the scene
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+
     // --- Check if player started moving ---
     if (!this.hasStartedMoving) {
       if (this.keys.left || this.keys.right || this.keys.jump) {
@@ -351,8 +359,8 @@ export class Game {
     }
 
     // --- Camera (follows player rotation) ---
-    const camDistance = 10;
-    const camHeight = 5;
+    const camDistance = 3.5;
+    const camHeight = 2;
     const targetCamPos = new THREE.Vector3(
       this.player.position.x + Math.sin(this.playerAngle) * camDistance,
       this.player.position.y + camHeight,
@@ -476,8 +484,8 @@ export class Game {
 
     const nearestPlatform = this.findNearestPlatform();
 
-    // Only show rewarded ad if player made progress (at least 3 platforms)
-    if (this.platformsReached >= 3) {
+    // Only show rewarded ad if player made progress (at least 10 platforms)
+    if (this.platformsReached >= 10) {
       const watchAd = await this.showFallPrompt(this.platformsReached);
 
       if (watchAd) {
@@ -593,6 +601,10 @@ export class Game {
     this.clock.start();
     this.clock.getDelta(); // Reset delta
     requestAnimationFrame(this.animate);
+  }
+
+  public enableInput(): void {
+    this.isInputEnabled = true;
   }
 
   public stop(): void {
