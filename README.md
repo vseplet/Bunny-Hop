@@ -1,16 +1,29 @@
 # Bunny Hop
 
-3D game built with Three.js and Bun for Poki.com
+3D platformer game built with Three.js and Bun for Poki.com
 
 ## Features
 
-- ⚡ Built with [Bun](https://bun.sh) for fast development
-- 🎮 Three.js for 3D graphics
-- 🎯 Poki SDK integration for ads and analytics
-- 🔥 Hot reload in development mode
-- 📦 Optimized production builds
-- 🎨 Biome for linting and formatting
-- 🪝 Git hooks with Lefthook
+- 🎮 **3D Platformer Gameplay**
+  - Physics-based movement with Cannon-es
+  - Third-person camera
+  - Jump between platforms
+
+- 🕹️ **Controls**
+  - Desktop: WASD/Arrow Keys + Space to jump
+  - Mobile: Virtual joystick + Jump button
+
+- ⚡ **Tech Stack**
+  - [Bun](https://bun.sh) for fast development
+  - Three.js for 3D graphics
+  - Cannon-es for physics (~100KB)
+  - Poki SDK integration
+
+- 🔥 **Development**
+  - Hot reload in development mode
+  - Optimized production builds
+  - Biome for linting and formatting
+  - Git hooks with Lefthook
 
 ## Getting Started
 
