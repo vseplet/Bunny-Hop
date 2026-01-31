@@ -8,6 +8,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPixelatedPass } from "three/addons/postprocessing/RenderPixelatedPass.js";
 import { poki } from "./poki.ts";
+import { ScaleManager } from "./scale.ts";
 
 export interface GameConfig {
   renderer: {
@@ -18,6 +19,12 @@ export interface GameConfig {
     fov: number;
     near: number;
     far: number;
+    landscape?: { distance: number; height: number };
+    portrait?: { distance: number; height: number };
+  };
+  scale?: {
+    landscape: { width: number; height: number };
+    portrait: { width: number; height: number };
   };
 }
 
@@ -32,6 +39,7 @@ export class Game {
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private composer: EffectComposer;
+  private scaleManager: ScaleManager;
 
   // Player
   private player: THREE.Mesh;
@@ -81,8 +89,16 @@ export class Game {
   // Lights
   private sun!: THREE.DirectionalLight;
 
+  // Camera settings (updated based on orientation)
+  private camDistance = 8;
+  private camHeight = 5;
+  private cameraConfig: {
+    landscape: { distance: number; height: number };
+    portrait: { distance: number; height: number };
+  };
+
   constructor(
-    _config: GameConfig,
+    config: GameConfig,
     private container: HTMLElement
   ) {
     // Scene
@@ -92,18 +108,38 @@ export class Game {
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
-      75,
+      config.camera.fov,
       window.innerWidth / window.innerHeight,
-      0.1,
-      1000
+      config.camera.near,
+      config.camera.far
     );
 
     // Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: config.renderer.antialias,
+      alpha: config.renderer.alpha,
+    });
     this.renderer.shadowMap.enabled = true;
     this.container.appendChild(this.renderer.domElement);
+
+    // Scale manager
+    this.scaleManager = new ScaleManager(this.renderer, this.camera, {
+      landscape: config.scale?.landscape ?? { width: 1920, height: 1080 },
+      portrait: config.scale?.portrait ?? { width: 1080, height: 1920 },
+      mode: "FIT",
+    });
+
+    // Camera distance config (landscape is closer)
+    this.cameraConfig = {
+      landscape: config.camera.landscape ?? { distance: 4, height: 2.5 },
+      portrait: config.camera.portrait ?? { distance: 8, height: 5 },
+    };
+    this.updateCameraDistance(this.scaleManager.isPortrait);
+
+    // Listen for orientation changes
+    this.scaleManager.onUpdate((state) => {
+      this.updateCameraDistance(state.isPortrait);
+    });
 
     // Post-processing (pixel effect)
     this.composer = new EffectComposer(this.renderer);
@@ -112,15 +148,15 @@ export class Game {
     const outputPass = new OutputPass();
     this.composer.addPass(outputPass);
 
+    // Connect composer to scale manager
+    this.scaleManager.setComposer(this.composer);
+
     // Create world
     this.player = this.createPlayer();
     this.createPlatforms();
     this.createLights();
     this.setupControls();
     this.createUI();
-
-    // Events
-    window.addEventListener("resize", this.onResize);
   }
 
   private createPlayer(): THREE.Mesh {
@@ -370,12 +406,10 @@ export class Game {
     }
 
     // --- Camera (follows player rotation) ---
-    const camDistance = 8;
-    const camHeight = 5;
     const targetCamPos = new THREE.Vector3(
-      this.player.position.x + Math.sin(this.playerAngle) * camDistance,
-      this.player.position.y + camHeight,
-      this.player.position.z + Math.cos(this.playerAngle) * camDistance
+      this.player.position.x + Math.sin(this.playerAngle) * this.camDistance,
+      this.player.position.y + this.camHeight,
+      this.player.position.z + Math.cos(this.playerAngle) * this.camDistance
     );
     this.camera.position.lerp(targetCamPos, 0.1);
     this.camera.lookAt(this.player.position);
@@ -601,13 +635,6 @@ export class Game {
     });
   }
 
-  private onResize = (): void => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.composer.setSize(window.innerWidth, window.innerHeight);
-  };
-
   public start(): void {
     this.isPlaying = true;
     this.clock.start();
@@ -617,6 +644,12 @@ export class Game {
 
   public enableInput(): void {
     this.isInputEnabled = true;
+  }
+
+  private updateCameraDistance(isPortrait: boolean): void {
+    const settings = isPortrait ? this.cameraConfig.portrait : this.cameraConfig.landscape;
+    this.camDistance = settings.distance;
+    this.camHeight = settings.height;
   }
 
   public stop(): void {

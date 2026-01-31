@@ -22,6 +22,12 @@ declare global {
         near: number;
         far: number;
         position: { x: number; y: number; z: number };
+        landscape: { distance: number; height: number };
+        portrait: { distance: number; height: number };
+      };
+      scale: {
+        landscape: { width: number; height: number };
+        portrait: { width: number; height: number };
       };
       poki: {
         enabled: boolean;
@@ -56,6 +62,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     {
       renderer: window.config.renderer,
       camera: window.config.camera,
+      scale: window.config.scale,
     },
     container
   );

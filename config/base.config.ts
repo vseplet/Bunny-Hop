@@ -64,6 +64,13 @@ const config = createConfig("base", {
       near: 0.1,
       far: 1000,
       position: { x: 0, y: 0, z: 5 },
+      landscape: { distance: 4, height: 2.5 },
+      portrait: { distance: 8, height: 5 },
+    },
+
+    scale: {
+      landscape: { width: 1280, height: 720 },
+      portrait: { width: 720, height: 1280 },
     },
 
     poki: {
