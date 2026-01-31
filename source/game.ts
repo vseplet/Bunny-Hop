@@ -4,6 +4,9 @@
  */
 
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPixelatedPass } from "three/addons/postprocessing/RenderPixelatedPass.js";
 import { poki } from "./poki.ts";
 
 export interface GameConfig {
@@ -28,6 +31,7 @@ export class Game {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
+  private composer: EffectComposer;
 
   // Player
   private player: THREE.Mesh;
@@ -41,7 +45,7 @@ export class Game {
   // Physics constants
   private readonly GRAVITY = 30;
   private readonly MOVE_SPEED = 8;
-  private readonly TURN_SPEED = 3;
+  private readonly TURN_SPEED = 1.5;
   private readonly JUMP_FORCE = 14;
   private readonly JUMP_CUT = 0.4; // Velocity multiplier when jump released early
 
@@ -100,6 +104,13 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.container.appendChild(this.renderer.domElement);
+
+    // Post-processing (pixel effect)
+    this.composer = new EffectComposer(this.renderer);
+    const renderPixelatedPass = new RenderPixelatedPass(7, this.scene, this.camera);
+    this.composer.addPass(renderPixelatedPass);
+    const outputPass = new OutputPass();
+    this.composer.addPass(outputPass);
 
     // Create world
     this.player = this.createPlayer();
@@ -282,7 +293,7 @@ export class Game {
     // --- Don't process input until enabled ---
     if (!this.isInputEnabled) {
       // Just render the scene
-      this.renderer.render(this.scene, this.camera);
+      this.composer.render();
       return;
     }
 
@@ -359,8 +370,8 @@ export class Game {
     }
 
     // --- Camera (follows player rotation) ---
-    const camDistance = 3.5;
-    const camHeight = 2;
+    const camDistance = 8;
+    const camHeight = 5;
     const targetCamPos = new THREE.Vector3(
       this.player.position.x + Math.sin(this.playerAngle) * camDistance,
       this.player.position.y + camHeight,
@@ -378,7 +389,7 @@ export class Game {
     this.sun.target.position.copy(this.player.position);
 
     // --- Render ---
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   private updatePlayerBox(): void {
@@ -594,6 +605,7 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
   };
 
   public start(): void {
