@@ -131,8 +131,8 @@ export class Game {
 
     // Scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb);
-    this.scene.fog = new THREE.Fog(0x87ceeb, 50, 200);
+    this.scene.background = this.createSpaceSkybox();
+    this.scene.fog = new THREE.Fog(0x0a0a20, 30, 80);
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(
@@ -186,6 +186,83 @@ export class Game {
     this.setupControls();
     this.createUI();
     this.loadHighScore();
+  }
+
+  private createSpaceSkybox(): THREE.CubeTexture {
+    const size = 512;
+    const textures: HTMLCanvasElement[] = [];
+
+    for (let i = 0; i < 6; i++) {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d")!;
+
+      // Deep space gradient
+      const gradient = ctx.createRadialGradient(
+        size / 2,
+        size / 2,
+        0,
+        size / 2,
+        size / 2,
+        size * 0.7
+      );
+      gradient.addColorStop(0, "#1a1a3a");
+      gradient.addColorStop(0.5, "#0d0d1a");
+      gradient.addColorStop(1, "#050510");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+
+      // Add nebula clouds
+      for (let n = 0; n < 3; n++) {
+        const nx = Math.random() * size;
+        const ny = Math.random() * size;
+        const nebulaGradient = ctx.createRadialGradient(
+          nx,
+          ny,
+          0,
+          nx,
+          ny,
+          100 + Math.random() * 100
+        );
+        const hue = Math.random() * 60 + 220; // Blue to purple
+        nebulaGradient.addColorStop(0, `hsla(${hue}, 70%, 30%, 0.1)`);
+        nebulaGradient.addColorStop(0.5, `hsla(${hue}, 60%, 20%, 0.05)`);
+        nebulaGradient.addColorStop(1, "transparent");
+        ctx.fillStyle = nebulaGradient;
+        ctx.fillRect(0, 0, size, size);
+      }
+
+      // Add stars
+      const starCount = 200 + Math.floor(Math.random() * 100);
+      for (let s = 0; s < starCount; s++) {
+        const x = Math.random() * size;
+        const y = Math.random() * size;
+        const starSize = Math.random() * 2 + 0.5;
+        const brightness = Math.random() * 0.5 + 0.5;
+
+        ctx.beginPath();
+        ctx.arc(x, y, starSize, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${brightness})`;
+        ctx.fill();
+
+        // Add glow to some stars
+        if (Math.random() > 0.7) {
+          const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, starSize * 4);
+          const starHue = Math.random() > 0.5 ? 200 : 30; // Blue or yellow tint
+          glowGradient.addColorStop(0, `hsla(${starHue}, 50%, 80%, 0.3)`);
+          glowGradient.addColorStop(1, "transparent");
+          ctx.fillStyle = glowGradient;
+          ctx.fillRect(x - starSize * 4, y - starSize * 4, starSize * 8, starSize * 8);
+        }
+      }
+
+      textures.push(canvas);
+    }
+
+    const cubeTexture = new THREE.CubeTexture(textures);
+    cubeTexture.needsUpdate = true;
+    return cubeTexture;
   }
 
   private createPlayer(): THREE.Mesh {

@@ -62,7 +62,7 @@ const config = createConfig("base", {
     camera: {
       fov: 75,
       near: 0.1,
-      far: 1000,
+      far: 100,
       position: { x: 0, y: 0, z: 5 },
       landscape: { distance: 4, height: 2.5 },
       portrait: { distance: 8, height: 5 },
