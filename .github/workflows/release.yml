@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Biome check
+        run: bun run check
+
+      - name: TypeScript type check
+        run: bun x tsc --noEmit
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "PREV_TAG=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if [ -n "${{ steps.prev_tag.outputs.PREV_TAG }}" ]; then
+            RANGE="${{ steps.prev_tag.outputs.PREV_TAG }}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+
+          # Features
+          FEATURES=$(git log $RANGE --pretty=format:"- %s" --grep="^feat" 2>/dev/null || true)
+          if [ -n "$FEATURES" ]; then
+            echo "### Features" >> $GITHUB_OUTPUT
+            echo "$FEATURES" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+          fi
+
+          # Fixes
+          FIXES=$(git log $RANGE --pretty=format:"- %s" --grep="^fix" 2>/dev/null || true)
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> $GITHUB_OUTPUT
+            echo "$FIXES" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+          fi
+
+          # Other changes
+          OTHER=$(git log $RANGE --pretty=format:"- %s" --invert-grep --grep="^feat" --grep="^fix" 2>/dev/null | head -20 || true)
+          if [ -n "$OTHER" ]; then
+            echo "### Other Changes" >> $GITHUB_OUTPUT
+            echo "$OTHER" >> $GITHUB_OUTPUT
+          fi
+
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Build bundle
+        run: bun run bundle
+
+      - name: Rename bundle for release
+        run: |
+          BUNDLE_FILE=$(ls -t bundles/*.zip | head -1)
+          mv "$BUNDLE_FILE" "bunny-hop-${{ steps.version.outputs.VERSION }}.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Bunny Hop ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+          body: |
+            ## What's Changed
+
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.PREV_TAG }}...${{ steps.version.outputs.VERSION }}
+          files: |
+            bunny-hop-${{ steps.version.outputs.VERSION }}.zip
+
+      - name: Upload to Poki
+        if: ${{ !contains(github.ref, '-alpha') && !contains(github.ref, '-beta') && !contains(github.ref, '-rc') }}
+        env:
+          POKI_UPLOAD_TOKEN: ${{ secrets.POKI_UPLOAD_TOKEN }}
+        run: |
+          if [ -z "$POKI_UPLOAD_TOKEN" ]; then
+            echo "POKI_UPLOAD_TOKEN not set, skipping Poki upload"
+            exit 0
+          fi
+
+          # Install Poki CLI
+          bun add -g @poki/cli
+
+          # Upload to Poki
+          poki-upload \
+            --token "$POKI_UPLOAD_TOKEN" \
+            --zip "bunny-hop-${{ steps.version.outputs.VERSION }}.zip" \
+            --name "${{ steps.version.outputs.VERSION }}" \
+            --notes "Release ${{ steps.version.outputs.VERSION }}"
