@@ -348,15 +348,20 @@ export class Game {
     // First 5 platforms: tutorial, straight and easy
     const isTutorial = n <= 5;
 
-    // Calculate gap - more variation!
+    // Calculate gap - noticeable variation!
     let gap: number;
     if (isTutorial) {
       gap = 4; // Fixed easy gap for tutorial
     } else {
-      // Varied gaps: sometimes short (3.5), sometimes long (6)
-      const baseGap = 3.5 + difficulty * 1;
-      const variation = Math.random() * 2.5; // 0 to 2.5
-      gap = baseGap + variation;
+      // Three types: close (3), medium (4), far (5)
+      const roll = Math.random();
+      if (roll < 0.33) {
+        gap = 3 + Math.random() * 0.5; // 3.0 - 3.5 (close)
+      } else if (roll < 0.66) {
+        gap = 4 + Math.random() * 0.5; // 4.0 - 4.5 (medium)
+      } else {
+        gap = 4.5 + Math.random() * 0.5; // 4.5 - 5.0 (far)
+      }
     }
 
     // Update path direction (skip for tutorial - keep straight)
@@ -384,13 +389,57 @@ export class Game {
     }
     this.lastGenY = Math.max(0, this.lastGenY);
 
-    // Size: tutorial has bigger platforms
-    let size: number;
+    // Size and shape: gradually introduce variety
+    let width: number;
+    let depth: number;
+    let height = 0.5;
+
     if (isTutorial) {
-      size = 3.5;
+      // Tutorial: uniform squares
+      width = 3.5;
+      depth = 3.5;
+    } else if (n < 20) {
+      // Early game (6-20): mostly squares, slight variation
+      width = 3.0 + Math.random() * 0.5;
+      depth = width;
+    } else if (n < 40) {
+      // Mid-early (20-40): introduce rectangles
+      const shapeRoll = Math.random();
+      if (shapeRoll < 0.6) {
+        // Square
+        width = 2.8 + Math.random() * 0.6;
+        depth = width;
+      } else {
+        // Rectangle
+        width = 3.0 + Math.random() * 1.0;
+        depth = 2.2 + Math.random() * 0.5;
+      }
     } else {
-      size = 3.2 - difficulty * 1.0 + Math.random() * 0.5;
+      // Full variety (40+)
+      const shapeRoll = Math.random();
+      if (shapeRoll < 0.25) {
+        // Small square
+        width = 2.0 + Math.random() * 0.5;
+        depth = width;
+      } else if (shapeRoll < 0.5) {
+        // Wide rectangle
+        width = 3.5 + Math.random() * 1.0;
+        depth = 2.0 + Math.random() * 0.5;
+      } else if (shapeRoll < 0.75) {
+        // Long rectangle
+        width = 2.0 + Math.random() * 0.5;
+        depth = 3.5 + Math.random() * 1.0;
+      } else {
+        // Large square
+        width = 3.2 + Math.random() * 0.8;
+        depth = width;
+        height = 0.8;
+      }
     }
+    // Shrink with difficulty
+    const shrink = difficulty * 0.4;
+    width = Math.max(1.8, width - shrink);
+    depth = Math.max(1.8, depth - shrink);
 
     // Get color based on progress
     const color = this.getColorByProgress(n);
@@ -403,9 +452,9 @@ export class Game {
       this.lastGenX,
       this.lastGenY,
       this.lastGenZ,
-      size,
-      0.5,
-      size,
+      width,
+      height,
+      depth,
       color,
       type,
       n
@@ -1156,22 +1205,24 @@ export class Game {
 
     const nearestPlatform = this.findNearestPlatform();
 
-    // Only show rewarded ad if player made progress (at least 10 platforms)
-    if (this.platformsReached >= 10) {
-      const watchAd = await this.showFallPrompt(this.platformsReached);
+    // Always show fall prompt and wait for user action
+    const canWatchAd = this.platformsReached >= 10;
+    const watchAd = await this.showFallPrompt(this.platformsReached, canWatchAd);
 
-      if (watchAd) {
-        const watched = await poki.rewardedBreak();
-        if (watched) {
-          // Respawn at nearest platform
-          this.resetPlayer(nearestPlatform);
-          this.isFalling = false;
-          this.start();
-          poki.gameplayStart();
-          return;
-        }
+    if (watchAd && canWatchAd) {
+      const watched = await poki.rewardedBreak();
+      if (watched) {
+        // Respawn at nearest platform
+        this.resetPlayer(nearestPlatform);
+        this.isFalling = false;
+        this.start();
+        poki.gameplayStart();
+        return;
       }
     }
+
+    // Show commercial break before restart
+    await poki.commercialBreak();
 
     // Full restart - recreate world
     this.resetWorld();
@@ -1226,7 +1277,7 @@ export class Game {
     this.updateRecordLight();
   }
 
-  private showFallPrompt(platforms: number): Promise<boolean> {
+  private showFallPrompt(platforms: number, showWatchAd = true): Promise<boolean> {
     audio.playGameOver();
 
     return new Promise((resolve) => {
@@ -1263,23 +1314,6 @@ export class Game {
       highScoreText.textContent = `Best: ${this.highScore}`;
       highScoreText.style.cssText = "font-size: 6vmin; margin-bottom: 5vmin; color: #ffd700;";
 
-      const watchBtn = document.createElement("button");
-      watchBtn.textContent = "WATCH AD";
-      watchBtn.style.cssText = `
-        padding: 3vmin 8vmin;
-        font-size: 8vmin;
-        font-family: 'Jersey 10', Arial, sans-serif;
-        font-weight: bold;
-        background: #4CAF50;
-        color: white;
-        border: none;
-        border-radius: 0;
-        cursor: pointer;
-        margin-bottom: 2vmin;
-        box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
-        transition: all 0.3s;
-      `;
-
       const skipBtn = document.createElement("button");
       skipBtn.textContent = "RESTART";
       skipBtn.style.cssText = `
@@ -1296,11 +1330,6 @@ export class Game {
         transition: all 0.3s;
       `;
 
-      watchBtn.onclick = () => {
-        overlay.remove();
-        resolve(true);
-      };
-
       skipBtn.onclick = () => {
         overlay.remove();
         resolve(false);
@@ -1309,7 +1338,34 @@ export class Game {
       overlay.appendChild(title);
       overlay.appendChild(progressText);
       overlay.appendChild(highScoreText);
-      overlay.appendChild(watchBtn);
+
+      // Only show WATCH AD button if allowed
+      if (showWatchAd) {
+        const watchBtn = document.createElement("button");
+        watchBtn.textContent = "WATCH AD";
+        watchBtn.style.cssText = `
+          padding: 3vmin 8vmin;
+          font-size: 8vmin;
+          font-family: 'Jersey 10', Arial, sans-serif;
+          font-weight: bold;
+          background: #4CAF50;
+          color: white;
+          border: none;
+          border-radius: 0;
+          cursor: pointer;
+          margin-bottom: 2vmin;
+          box-shadow: 0 0.6vmin 1vmin rgba(0, 0, 0, 0.3);
+          transition: all 0.3s;
+        `;
+
+        watchBtn.onclick = () => {
+          overlay.remove();
+          resolve(true);
+        };
+
+        overlay.appendChild(watchBtn);
+      }
+
       overlay.appendChild(skipBtn);
       document.body.appendChild(overlay);
     });
