@@ -760,15 +760,24 @@ export class Game {
       platformBox.max.z - this.playerBox.min.z
     );
 
+    // Check if player is predominantly above the platform (for landing check)
+    const playerCenterY = this.player.position.y;
+    const platformTopY = platformBox.max.y;
+
     // Find smallest overlap axis
     if (overlapY <= overlapX && overlapY <= overlapZ) {
       // Vertical collision
       if (this.playerVelocity.y < 0) {
-        // Landing on top
-        this.player.position.y = platformBox.max.y + 0.5;
-        this.playerVelocity.y = 0;
-        this.isGrounded = true;
-        this.isJumping = false;
+        // Only land on top if player center is above platform top
+        if (playerCenterY >= platformTopY) {
+          this.player.position.y = platformBox.max.y + 0.5;
+          this.playerVelocity.y = 0;
+          this.isGrounded = true;
+          this.isJumping = false;
+        } else {
+          // Player hit from the side while falling - resolve horizontally
+          this.resolveHorizontalCollision(platformBox, overlapX, overlapZ);
+        }
       } else if (this.playerVelocity.y > 0) {
         // Hitting bottom
         this.player.position.y = platformBox.min.y - 0.5;
@@ -799,6 +808,36 @@ export class Game {
     }
 
     this.updatePlayerBox();
+  }
+
+  private resolveHorizontalCollision(
+    platformBox: THREE.Box3,
+    overlapX: number,
+    overlapZ: number
+  ): void {
+    if (overlapX <= overlapZ) {
+      // Push on X axis
+      if (
+        this.player.position.x >
+        platformBox.min.x + (platformBox.max.x - platformBox.min.x) / 2
+      ) {
+        this.player.position.x = platformBox.max.x + 0.5;
+      } else {
+        this.player.position.x = platformBox.min.x - 0.5;
+      }
+      this.playerVelocity.x = 0;
+    } else {
+      // Push on Z axis
+      if (
+        this.player.position.z >
+        platformBox.min.z + (platformBox.max.z - platformBox.min.z) / 2
+      ) {
+        this.player.position.z = platformBox.max.z + 0.5;
+      } else {
+        this.player.position.z = platformBox.min.z - 0.5;
+      }
+      this.playerVelocity.z = 0;
+    }
   }
 
   private findNearestPlatform(): THREE.Vector3 {
