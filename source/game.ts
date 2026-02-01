@@ -551,11 +551,16 @@ export class Game {
     });
   }
 
-  public setMobileControls(dx: number, _dy: number, jump: boolean): void {
+  public setMobileControls(dx: number, dy: number, jump: boolean): void {
     // Only use horizontal axis for turning
     this.keys.left = dx < -0.35;
     this.keys.right = dx > 0.35;
     this.keys.jump = jump;
+
+    // Any joystick movement starts the game
+    if (!this.hasStartedMoving && (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1 || jump)) {
+      this.hasStartedMoving = true;
+    }
   }
 
   private update(delta: number): void {
@@ -584,7 +589,13 @@ export class Game {
 
     // --- Check if player started moving ---
     if (!this.hasStartedMoving) {
-      if (this.keys.left || this.keys.right || this.keys.jump) {
+      if (
+        this.keys.left ||
+        this.keys.right ||
+        this.keys.forward ||
+        this.keys.backward ||
+        this.keys.jump
+      ) {
         this.hasStartedMoving = true;
       }
     }
@@ -916,7 +927,7 @@ export class Game {
       const isNewRecord = platforms >= this.highScore && platforms > 0;
 
       const title = document.createElement("h2");
-      title.textContent = isNewRecord ? "🎉 New Record!" : "You fell!";
+      title.textContent = isNewRecord ? "NEW RECORD!" : "YOU FELL!";
       title.style.cssText = "font-size: 14vmin; margin-bottom: 2vmin;";
 
       const progressText = document.createElement("p");

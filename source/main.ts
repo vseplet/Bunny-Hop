@@ -147,13 +147,13 @@ function showStartScreen(): void {
 
   if (isMobile) {
     instructions.innerHTML = `
-      <p>📱 Joystick left/right to steer</p>
-      <p>🔴 Tap JUMP to start & jump</p>
+      <p>Joystick left/right to steer</p>
+      <p>Tap JUMP to start & jump</p>
     `;
   } else {
     instructions.innerHTML = `
-      <p>⌨️ A/D or ←/→ to steer</p>
-      <p>⎵ Space to start & jump</p>
+      <p>A/D or arrows to steer</p>
+      <p>Space to start & jump</p>
     `;
   }
 
