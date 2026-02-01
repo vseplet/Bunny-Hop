@@ -49,9 +49,18 @@ export interface GameConfig {
   };
 }
 
+type PlatformType = "normal" | "moving" | "fading";
+
 interface Platform {
   mesh: THREE.Mesh;
   box: THREE.Box3;
+  type: PlatformType;
+  index: number;
+  baseX?: number; // for moving platforms
+  movePhase?: number; // for moving platforms
+  touched?: boolean; // for fading platforms
+  fadeTimer?: number; // for fading platforms
+  dead?: boolean; // platform is faded out, skip collision
 }
 
 export class Game {
@@ -136,6 +145,17 @@ export class Game {
     portrait: { distance: number; height: number };
   };
 
+  // Platform generation - smooth snake/spiral path
+  private readonly PLATFORMS_AHEAD = 25;
+  private readonly PLATFORMS_BEHIND = 10;
+  private generatedCount = 0;
+  private lastGenX = 0;
+  private lastGenY = 0;
+  private lastGenZ = 0;
+  private pathAngle = 0; // Current direction in radians (0 = -Z forward)
+  private turnRate = 0; // Current turn rate (positive = left, negative = right)
+  private turnChangeTimer = 0; // When to change turn direction
+
   constructor(
     config: GameConfig,
     private container: HTMLElement
@@ -194,8 +214,8 @@ export class Game {
 
     // Create world
     this.player = this.createPlayer();
-    this.createPlatforms();
-    this.createGems();
+    this.createStartPlatform();
+    this.generateInitialPlatforms();
     this.createLights();
     this.setupControls();
     this.createUI();
@@ -300,102 +320,207 @@ export class Game {
     return mesh;
   }
 
-  private createPlatforms(): void {
-    const { start, tutorial, main } = this.config.platforms;
-
-    // Starting platform - for player to get used to controls
+  private createStartPlatform(): void {
+    const { start } = this.config.platforms;
     const startCenterZ = -start.depth / 2;
-    this.addStartPlatform(0, 0, startCenterZ, start.width, start.height, start.depth);
+    this.addStartPlatformMesh(0, 0, startCenterZ, start.width, start.height, start.depth);
 
-    // Tutorial section: platforms at same height and distance
-    let currentZ = -start.depth;
-
-    for (let i = 0; i < tutorial.count; i++) {
-      currentZ -= tutorial.gap;
-      this.addPlatform(0, 0, currentZ, tutorial.size, 0.5, tutorial.size, 0x4a9d4a);
-    }
-
-    // Main game section: random platforms
-    let currentY = 0;
-    let currentX = 0;
-
-    for (let i = 0; i < main.count; i++) {
-      // Random gap between platforms (4-7 units - within jump range)
-      const gap = 4 + Math.random() * 3;
-      currentZ -= gap;
-
-      // Random height change (-1 to +2 units)
-      const heightChange = Math.random() * 3 - 1;
-      currentY = Math.max(0, currentY + heightChange);
-
-      // Slight X variation for more interesting path
-      currentX += (Math.random() - 0.5) * 4;
-      currentX = Math.max(-15, Math.min(15, currentX)); // Keep within bounds
-
-      // Platform size varies slightly
-      const size = 2 + Math.random() * 1.5;
-
-      // Color gradient from green to blue as you progress
-      const progress = i / main.count;
-      const color = new THREE.Color().setHSL(0.3 - progress * 0.2, 0.6, 0.4);
-
-      this.addPlatform(currentX, currentY, currentZ, size, 0.5, size, color.getHex());
-    }
-
-    // Final platform (goal)
-    this.addPlatform(currentX, currentY, currentZ - 8, 8, 1, 8, 0xffd700);
+    // Initialize generator position after start platform
+    this.lastGenZ = -start.depth;
+    this.lastGenX = 0;
+    this.lastGenY = 0;
   }
 
-  private createGems(): void {
-    // Skip first platform (start) and place gems on every 5th platform
-    for (let i = 5; i < this.platforms.length; i += 5) {
-      const platform = this.platforms[i];
-      const pos = platform.mesh.position;
-
-      // Create pyramid (tetrahedron)
-      const geometry = new THREE.ConeGeometry(0.4, 0.8, 4);
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x00bfff,
-        emissive: 0x00bfff,
-        emissiveIntensity: 0.5,
-        metalness: 0.8,
-        roughness: 0.2,
-      });
-
-      const gem = new THREE.Mesh(geometry, material);
-      gem.position.set(pos.x, pos.y + 2, pos.z);
-      gem.castShadow = true;
-      this.scene.add(gem);
-      this.gems.push(gem);
-
-      // Add floating animation
-      const startY = gem.position.y;
-      new Tween({ y: startY, rot: 0 }, this.tweenGroup)
-        .to({ y: startY + 0.5, rot: Math.PI * 2 }, 2000)
-        .easing(Easing.Sinusoidal.InOut)
-        .repeat(Infinity)
-        .yoyo(true)
-        .onUpdate((obj) => {
-          gem.position.y = obj.y;
-          gem.rotation.y = obj.rot;
-        })
-        .start();
+  private generateInitialPlatforms(): void {
+    // Generate initial platforms ahead
+    for (let i = 0; i < this.PLATFORMS_AHEAD; i++) {
+      this.generateNextPlatform();
     }
   }
 
-  private addPlatform(
+  private generateNextPlatform(): void {
+    this.generatedCount++;
+    const n = this.generatedCount;
+
+    // Calculate difficulty (0 to 1)
+    const difficulty = Math.min(n / 200, 1);
+
+    // First 5 platforms: tutorial, straight and easy
+    const isTutorial = n <= 5;
+
+    // Calculate gap - more variation!
+    let gap: number;
+    if (isTutorial) {
+      gap = 4; // Fixed easy gap for tutorial
+    } else {
+      // Varied gaps: sometimes short (3.5), sometimes long (6)
+      const baseGap = 3.5 + difficulty * 1;
+      const variation = Math.random() * 2.5; // 0 to 2.5
+      gap = baseGap + variation;
+    }
+
+    // Update path direction (skip for tutorial - keep straight)
+    if (!isTutorial) {
+      this.updatePathDirection();
+    }
+
+    // Calculate next position using current direction
+    const nextX = this.lastGenX + Math.sin(this.pathAngle) * gap;
+    const nextZ = this.lastGenZ - Math.cos(this.pathAngle) * gap;
+
+    // Check for self-intersection and adjust if needed (skip for tutorial)
+    if (isTutorial) {
+      this.lastGenX = nextX;
+      this.lastGenZ = nextZ;
+    } else {
+      const adjustedPos = this.avoidSelfIntersection(nextX, nextZ, gap);
+      this.lastGenX = adjustedPos.x;
+      this.lastGenZ = adjustedPos.z;
+    }
+
+    // Height: tutorial stays flat, then gradual increase
+    if (!isTutorial && Math.random() > 0.3) {
+      this.lastGenY += 0.2 + Math.random() * 0.3 + difficulty * 0.2;
+    }
+    this.lastGenY = Math.max(0, this.lastGenY);
+
+    // Size: tutorial has bigger platforms
+    let size: number;
+    if (isTutorial) {
+      size = 3.5;
+    } else {
+      size = 3.2 - difficulty * 1.0 + Math.random() * 0.5;
+    }
+
+    // Get color based on progress
+    const color = this.getColorByProgress(n);
+
+    // Get platform type
+    const type = this.getPlatformType(n);
+
+    // Add platform
+    this.addPlatformWithType(
+      this.lastGenX,
+      this.lastGenY,
+      this.lastGenZ,
+      size,
+      0.5,
+      size,
+      color,
+      type,
+      n
+    );
+
+    // Add gem every 5th platform (starting from 5)
+    if (n % 5 === 0) {
+      this.addGemToPlatform(this.platforms[this.platforms.length - 1]);
+    }
+  }
+
+  private updatePathDirection(): void {
+    // Change turn direction periodically
+    this.turnChangeTimer--;
+    if (this.turnChangeTimer <= 0) {
+      // New turn rate: gentle curves
+      this.turnRate = (Math.random() - 0.5) * 0.3;
+      this.turnChangeTimer = 5 + Math.floor(Math.random() * 10);
+    }
+
+    // Apply turn rate to path angle (smooth turning)
+    this.pathAngle += this.turnRate;
+
+    // Keep angle in reasonable range for mostly forward movement
+    // Allow up to ~60 degrees left or right from forward
+    const maxAngle = Math.PI / 3;
+    this.pathAngle = Math.max(-maxAngle, Math.min(maxAngle, this.pathAngle));
+  }
+
+  private avoidSelfIntersection(x: number, z: number, gap: number): { x: number; z: number } {
+    const minDistance = gap * 1.5; // Minimum distance from other platforms
+
+    // Check recent platforms (not all, just last ~30)
+    const checkCount = Math.min(30, this.platforms.length);
+    for (let i = this.platforms.length - 1; i >= this.platforms.length - checkCount; i--) {
+      if (i < 0) break;
+      const p = this.platforms[i];
+      const dx = x - p.mesh.position.x;
+      const dz = z - p.mesh.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist < minDistance) {
+        // Too close! Push away from this platform
+        const pushAngle = Math.atan2(dx, -dz);
+        const pushStrength = (minDistance - dist) * 1.5;
+
+        x += Math.sin(pushAngle) * pushStrength;
+        z -= Math.cos(pushAngle) * pushStrength;
+
+        // Also adjust path angle to steer away
+        this.pathAngle = pushAngle * 0.5;
+      }
+    }
+
+    return { x, z };
+  }
+
+  private getColorByProgress(n: number): number {
+    // Color zones with more distinct transitions
+    if (n < 30) {
+      // Meadow: bright green
+      const t = n / 30;
+      return new THREE.Color().setHSL(0.35 - t * 0.05, 0.7, 0.45).getHex();
+    } else if (n < 60) {
+      // Sunset: yellow to orange (more visible transition)
+      const t = (n - 30) / 30;
+      return new THREE.Color().setHSL(0.12 - t * 0.06, 0.8, 0.5).getHex();
+    } else if (n < 100) {
+      // Fire: orange to red
+      const t = (n - 60) / 40;
+      return new THREE.Color().setHSL(0.06 - t * 0.06, 0.85, 0.45).getHex();
+    } else if (n < 150) {
+      // Sky: cyan to deep blue
+      const t = (n - 100) / 50;
+      return new THREE.Color().setHSL(0.55 - t * 0.1, 0.7, 0.5).getHex();
+    } else {
+      // Space: purple to magenta
+      const t = Math.min((n - 150) / 80, 1);
+      return new THREE.Color().setHSL(0.8 - t * 0.1, 0.6, 0.45).getHex();
+    }
+  }
+
+  private getPlatformType(n: number): PlatformType {
+    if (n < 40) return "normal";
+
+    const roll = Math.random();
+
+    if (n < 80) {
+      // 20% chance of moving
+      return roll < 0.2 ? "moving" : "normal";
+    }
+
+    // 15% moving, 15% fading
+    if (roll < 0.15) return "moving";
+    if (roll < 0.3) return "fading";
+    return "normal";
+  }
+
+  private addPlatformWithType(
     x: number,
     y: number,
     z: number,
     w: number,
     h: number,
     d: number,
-    color: number
+    color: number,
+    type: PlatformType,
+    index: number
   ): void {
     const geometry = new THREE.BoxGeometry(w, h, d);
     const material = new THREE.MeshStandardMaterial({
       color,
       roughness: 0.8,
+      transparent: type === "fading",
+      opacity: 1,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
@@ -404,10 +529,60 @@ export class Game {
     this.scene.add(mesh);
 
     const box = new THREE.Box3().setFromObject(mesh);
-    this.platforms.push({ mesh, box });
+    const platform: Platform = {
+      mesh,
+      box,
+      type,
+      index,
+      baseX: type === "moving" ? x : undefined,
+      movePhase: type === "moving" ? Math.random() * Math.PI * 2 : undefined,
+      touched: false,
+      fadeTimer: 1.5,
+      dead: false,
+    };
+    this.platforms.push(platform);
   }
 
-  private addStartPlatform(x: number, y: number, z: number, w: number, h: number, d: number): void {
+  private addGemToPlatform(platform: Platform): void {
+    const pos = platform.mesh.position;
+
+    const geometry = new THREE.ConeGeometry(0.4, 0.8, 4);
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x00bfff,
+      emissive: 0x00bfff,
+      emissiveIntensity: 0.5,
+      metalness: 0.8,
+      roughness: 0.2,
+    });
+
+    const gem = new THREE.Mesh(geometry, material);
+    gem.position.set(pos.x, pos.y + 2, pos.z);
+    gem.castShadow = true;
+    this.scene.add(gem);
+    this.gems.push(gem);
+
+    // Add floating animation
+    const startY = gem.position.y;
+    new Tween({ y: startY, rot: 0 }, this.tweenGroup)
+      .to({ y: startY + 0.5, rot: Math.PI * 2 }, 2000)
+      .easing(Easing.Sinusoidal.InOut)
+      .repeat(Infinity)
+      .yoyo(true)
+      .onUpdate((obj) => {
+        gem.position.y = obj.y;
+        gem.rotation.y = obj.rot;
+      })
+      .start();
+  }
+
+  private addStartPlatformMesh(
+    x: number,
+    y: number,
+    z: number,
+    w: number,
+    h: number,
+    d: number
+  ): void {
     // Create checkered texture
     const canvas = document.createElement("canvas");
     const size = 256;
@@ -447,7 +622,13 @@ export class Game {
     this.scene.add(mesh);
 
     const box = new THREE.Box3().setFromObject(mesh);
-    this.platforms.push({ mesh, box });
+    this.platforms.push({
+      mesh,
+      box,
+      type: "normal",
+      index: 0,
+      dead: false,
+    });
   }
 
   private createLights(): void {
@@ -645,13 +826,27 @@ export class Game {
     const displacement = this.playerVelocity.clone().multiplyScalar(delta);
     this.player.position.add(displacement);
 
+    // --- Platform generation and cleanup ---
+    this.updatePlatformGeneration();
+    this.updateDynamicPlatforms(delta);
+    this.cleanupOldPlatforms();
+
     // --- Collision detection ---
     this.updatePlayerBox();
     this.isGrounded = false;
 
     for (const platform of this.platforms) {
+      // Skip dead platforms (faded out)
+      if (platform.dead) continue;
+
       if (this.playerBox.intersectsBox(platform.box)) {
         this.resolveCollision(platform.box);
+
+        // Mark fading platform as touched
+        if (platform.type === "fading" && !platform.touched) {
+          platform.touched = true;
+        }
+
         // Track touched platforms
         if (!this.touchedPlatforms.has(platform.mesh)) {
           this.touchedPlatforms.add(platform.mesh);
@@ -729,6 +924,88 @@ export class Game {
 
     // --- Render ---
     this.composer.render();
+  }
+
+  private updatePlatformGeneration(): void {
+    // Find the furthest platform Z
+    let furthestZ = 0;
+    for (const p of this.platforms) {
+      if (p.mesh.position.z < furthestZ) {
+        furthestZ = p.mesh.position.z;
+      }
+    }
+
+    // Generate more platforms if player is getting close to the end
+    const playerZ = this.player.position.z;
+    const distanceToEnd = playerZ - furthestZ;
+
+    while (distanceToEnd < this.PLATFORMS_AHEAD * 5) {
+      this.generateNextPlatform();
+      // Recalculate
+      const newFurthest = this.platforms[this.platforms.length - 1].mesh.position.z;
+      if (playerZ - newFurthest >= this.PLATFORMS_AHEAD * 5) break;
+    }
+  }
+
+  private updateDynamicPlatforms(delta: number): void {
+    for (const platform of this.platforms) {
+      // Moving platforms
+      if (
+        platform.type === "moving" &&
+        platform.baseX !== undefined &&
+        platform.movePhase !== undefined
+      ) {
+        platform.movePhase += delta * 2;
+        const offsetX = Math.sin(platform.movePhase) * 3;
+        platform.mesh.position.x = platform.baseX + offsetX;
+        platform.box.setFromObject(platform.mesh);
+      }
+
+      // Fading platforms
+      if (platform.type === "fading" && platform.touched && !platform.dead) {
+        platform.fadeTimer = (platform.fadeTimer ?? 1.5) - delta;
+        const material = platform.mesh.material as THREE.MeshStandardMaterial;
+        material.opacity = Math.max(0, platform.fadeTimer / 1.5);
+
+        if (platform.fadeTimer <= 0) {
+          platform.dead = true;
+          platform.mesh.visible = false;
+        }
+      }
+    }
+  }
+
+  private cleanupOldPlatforms(): void {
+    const playerZ = this.player.position.z;
+    const removeThreshold = playerZ + this.PLATFORMS_BEHIND * 6;
+
+    // Remove platforms that are too far behind (but keep start platform at index 0)
+    for (let i = this.platforms.length - 1; i > 0; i--) {
+      const platform = this.platforms[i];
+      if (platform.mesh.position.z > removeThreshold) {
+        this.scene.remove(platform.mesh);
+        platform.mesh.geometry.dispose();
+        if (Array.isArray(platform.mesh.material)) {
+          for (const m of platform.mesh.material) {
+            m.dispose();
+          }
+        } else {
+          platform.mesh.material.dispose();
+        }
+        this.platforms.splice(i, 1);
+      }
+    }
+
+    // Also cleanup gems that are too far behind
+    for (let i = this.gems.length - 1; i >= 0; i--) {
+      const gem = this.gems[i];
+      if (gem.position.z > removeThreshold) {
+        this.scene.remove(gem);
+        gem.geometry.dispose();
+        (gem.material as THREE.Material).dispose();
+        this.gems.splice(i, 1);
+      }
+    }
   }
 
   private updatePlayerBox(): void {
@@ -934,9 +1211,18 @@ export class Game {
     this.gemsCollected = 0;
     this.gemsUI.textContent = "Gems: 0";
 
+    // Reset generator state
+    this.generatedCount = 0;
+    this.lastGenX = 0;
+    this.lastGenY = 0;
+    this.lastGenZ = 0;
+    this.pathAngle = 0;
+    this.turnRate = 0;
+    this.turnChangeTimer = 0;
+
     // Recreate world
-    this.createPlatforms();
-    this.createGems();
+    this.createStartPlatform();
+    this.generateInitialPlatforms();
     this.updateRecordLight();
   }
 
